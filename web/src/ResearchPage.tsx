@@ -75,7 +75,7 @@ function ResearchMap({ workspace, selectedId, onSelect, onDiscuss }: { workspace
         <div><div className="section-kicker"><Route size={14} /> Research</div><h2>Ideas, tests, and results</h2></div>
         <div className="research-header-actions">
           <span className="map-count">{directions.length} ideas · {workspace.runs.length + workspace.attempts.length} tests</span>
-          <button className="discuss-button" onClick={onDiscuss}><MessageSquareText size={14} /> Discuss</button>
+          <button className="discuss-button" onClick={onDiscuss}><MessageSquareText size={14} /> Chat</button>
         </div>
       </div>
       <div className="research-map">
@@ -183,7 +183,7 @@ function ResearchDetail({ node, workspace, onOpenPolicy }: { node: ResearchNode 
           <div className="idea-policy-card">
             <div className="card-label"><ShieldCheck size={14} /> Policy for the next work</div>
             <h3>{workKindLabels[node.next_work_kind] ?? titleCase(node.next_work_kind)}</h3>
-            <p>{node.agent_guidance || "No idea-specific guidance has been recorded yet. Discuss it with the agent."}</p>
+            <p>{node.agent_guidance || "No idea-specific guidance has been recorded yet. Chat with the agent about it."}</p>
             {node.ask_before && <small><strong>Stop and ask before:</strong> {node.ask_before}</small>}
             <button onClick={() => onOpenPolicy(node.id)}>Open policy <ArrowRight size={14} /></button>
           </div>

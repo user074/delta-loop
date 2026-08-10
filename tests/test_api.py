@@ -25,12 +25,37 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
             for version in imported["rules_versions"]
             if version["id"] == imported["active_rules_version_id"]
         )["rules"]
-        assert imported["policy_schema_version"] == 1
+        assert imported["policy_schema_version"] == 4
+        assert [
+            rule["id"] for rule in active_rules
+            if rule["category"] == "loop" and rule["loop_level"] == "stage"
+        ] == [
+            "stage-ideation",
+            "stage-implementation",
+            "stage-experimentation",
+            "stage-evaluation",
+        ]
+        assert [
+            rule["id"] for rule in active_rules
+            if rule["category"] == "loop" and rule["loop_level"] == "step"
+        ] == [
+            "loop-read-context",
+            "loop-ground-and-select",
+            "loop-create-plan",
+            "loop-run-worker",
+            "loop-review-result",
+            "loop-update-project",
+            "loop-finish-cycle",
+        ]
         assert any(rule["category"] == "loop" for rule in active_rules)
         assert any(rule["category"] == "checkpoint" for rule in active_rules)
         git_rule = next(rule for rule in active_rules if rule["id"] == "git-reviewed-work")
         assert git_rule["category"] == "git"
         assert git_rule["enabled"] is False
+        assert git_rule["loop_step_ids"] == ["loop-finish-cycle"]
+        exact_inputs = next(rule for rule in active_rules if rule["id"] == "plan-exact-inputs")
+        assert exact_inputs["loop_step_ids"] == ["loop-create-plan"]
+        assert exact_inputs["source_label"] == "delta-research · PLAN Resources"
         policy_file = Path(imported["policy_file"])
         loop_file = Path(imported["loop_file"])
         assert policy_file == project / ".delta-loop" / "POLICY.md"
@@ -38,11 +63,22 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         policy_text = policy_file.read_text(encoding="utf-8")
         assert "# Active Delta Loop Policy" in policy_text
         assert "**Quick Test**" in policy_text
-        assert "start of every supervisor cycle" in policy_text
-        assert "delta-research source" in policy_text
+        assert "start of every cycle" in policy_text
+        assert "Default loop imported from" in policy_text
         assert imported["harness"]["source_url"].endswith("user074/delta-research.git")
         loop_text = loop_file.read_text(encoding="utf-8")
         assert "# Delta Loop Research Instructions" in loop_text
+        assert "complete active research loop" in loop_text
+        assert "Do not look for or combine it with another supervisor specification" in loop_text
+        assert "### 1. Ideation" in loop_text
+        assert "#### 1.1 Read the current research state" in loop_text
+        assert "### 4. Evaluation" in loop_text
+        assert "#### 4.3 Save reviewed work and continue" in loop_text
+        assert "##### Details for this step" in loop_text
+        assert "Name the exact data, model, and prior files" in loop_text
+        assert "delta-research · PLAN Resources" in loop_text
+        assert "Git workflow" not in loop_text
+        assert "SUPERVISOR.md" not in loop_text
         assert "## Delta Loop Policy" in loop_text
         assert "DELTA_LOOP_WORKSPACE_ID" in loop_text
         assert imported["harness"]["revision"] in loop_text or not imported["harness"]["revision"]
@@ -245,7 +281,7 @@ def test_plan_run_and_review_flow(tmp_path: Path) -> None:
         assert handoff.is_file()
         handoff_text = handoff.read_text(encoding="utf-8")
         assert "## Rules for the agent" in handoff_text
-        assert "When A new idea is ready to test" in handoff_text
+        assert "When The selected idea says Next work: Quick test" in handoff_text
         assert "Applies to Entire project" in handoff_text
         assert "## Guidance for this idea" in handoff_text
         assert "safe fixture" in handoff_text
@@ -284,9 +320,14 @@ def test_rules_must_be_checked_before_use(tmp_path: Path) -> None:
             "enabled": True,
             "cannot_override": False,
         }
+        reordered_rules = active_rules.copy()
+        first_stage_index = next(index for index, rule in enumerate(reordered_rules) if rule["id"] == "stage-ideation")
+        second_stage_index = next(index for index, rule in enumerate(reordered_rules) if rule["id"] == "stage-implementation")
+        reordered_rules[first_stage_index], reordered_rules[second_stage_index] = reordered_rules[second_stage_index], reordered_rules[first_stage_index]
+        reordered_rules.append(new_rule)
         drafted = client.post(
             f"/api/workspaces/{workspace_id}/rules/drafts",
-            json={"rules": [*active_rules, new_rule]},
+            json={"rules": reordered_rules},
         ).json()
         draft = drafted["rules_versions"][-1]
         rejected = client.post(
@@ -305,6 +346,12 @@ def test_rules_must_be_checked_before_use(tmp_path: Path) -> None:
         policy_text = Path(activated["policy_file"]).read_text(encoding="utf-8")
         assert f"**Policy version:** {draft['version']}" in policy_text
         assert "Save one short summary" in policy_text
+        loop_text = Path(activated["loop_file"]).read_text(encoding="utf-8")
+        assert "### 1. Implementation" in loop_text
+        assert "#### 1.1 Write and seal the run plan" in loop_text
+        assert "### 2. Ideation" in loop_text
+        assert "Save one short summary" in loop_text
+        assert "SUPERVISOR.md" not in loop_text
 
 
 def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None:
@@ -349,8 +396,9 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
         for version in upgraded["rules_versions"]
         if version["id"] == upgraded["active_rules_version_id"]
     )
-    assert upgraded["policy_schema_version"] == 1
+    assert upgraded["policy_schema_version"] == 4
     assert active["version"] == 3
     assert any(rule["id"] == "lab-specific-rule" for rule in active["rules"])
     assert any(rule["category"] == "loop" for rule in active["rules"])
     assert any(rule["category"] == "checkpoint" for rule in active["rules"])
+    assert any(rule["id"] == "plan-exact-inputs" for rule in active["rules"])

@@ -84,7 +84,7 @@ export default function HomePage({
           {!editingQuestion && (
             <div className="question-actions">
               <button className="discuss-button" onClick={() => onDiscuss(questionDiscussion(workspace))}>
-                <MessageSquareText size={14} /> Discuss
+                <MessageSquareText size={14} /> Chat
               </button>
               <button onClick={() => { setQuestion(workspace.goal); setEditingQuestion(true); }}>
                 <Edit3 size={14} /> Edit directly
@@ -96,7 +96,7 @@ export default function HomePage({
           <form className="question-edit" onSubmit={saveQuestion}>
             <label><span>Updated question</span><textarea rows={3} value={question} onChange={(event) => setQuestion(event.target.value)} /></label>
             <label><span>Why did it change?</span><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="What did the recent research change?" /></label>
-            <p>Discuss the shift with the agent first. Saving keeps the previous wording in the history.</p>
+            <p>Chat with the agent about the shift first. Saving keeps the previous wording in the history.</p>
             <div><button type="button" onClick={() => setEditingQuestion(false)}><X size={14} /> Cancel</button><button className="save-question" disabled={busy || !question.trim()}><Save size={14} /> Save question</button></div>
           </form>
         ) : (
@@ -127,7 +127,7 @@ export default function HomePage({
               </div>
               <div className="slide-decision-row">
                 <div><CheckCircle2 size={16} /><span>{latestReview ? `Result trusted: ${latestReview.trust_result}` : "Needs a research review"}</span></div>
-                <strong>{latestReview ? nextStepLabels[latestReview.next_step] : "Discuss what this means with the agent"}</strong>
+                <strong>{latestReview ? nextStepLabels[latestReview.next_step] : "Chat with the agent about what this means"}</strong>
               </div>
               {latestApproach && <button className="open-research-link" onClick={() => onOpenResearch(latestApproach.id)}>See this idea and its history <ArrowRight size={14} /></button>}
             </>

@@ -36,7 +36,12 @@ from .models import (
 )
 from .policy_sync import LOOP_RELATIVE_PATH, POLICY_RELATIVE_PATH, PolicySyncFailure, sync_policy
 from .protocols import default_protocols, next_stage
-from .rules import check_rules, initial_rules_version, upgrade_policy_rules
+from .rules import (
+    POLICY_SCHEMA_VERSION,
+    check_rules,
+    initial_rules_version,
+    upgrade_policy_rules,
+)
 from .runner import AttemptRunner, RunFailure
 from .store import WorkspaceStore
 from .terminal import TerminalFailure, TerminalManager
@@ -86,7 +91,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             first = initial_rules_version()
             workspace.rules_versions = [first]
             workspace.active_rules_version_id = first.id
-            workspace.policy_schema_version = 1
+            workspace.policy_schema_version = POLICY_SCHEMA_VERSION
             return True
         active = next(
             (
@@ -96,21 +101,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             None,
         )
         changed = False
-        if active and active.version == 1 and not any(
-            rule.id == "real-work-first" for rule in active.rules
-        ):
-            active.status = "retired"
-            baseline = initial_rules_version()
-            next_number = max(version.version for version in workspace.rules_versions) + 1
-            baseline.id = f"rules-v{next_number}"
-            baseline.version = next_number
-            baseline.parent_id = active.id
-            baseline.activated_at = now_iso()
-            workspace.rules_versions.append(baseline)
-            workspace.active_rules_version_id = baseline.id
-            active = baseline
-            changed = True
-        if workspace.policy_schema_version < 1 and active:
+        if workspace.policy_schema_version < POLICY_SCHEMA_VERSION and active:
             upgraded_rules, rules_changed = upgrade_policy_rules(active)
             if rules_changed:
                 active.status = "retired"
@@ -126,7 +117,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
                 )
                 workspace.rules_versions.append(upgraded)
                 workspace.active_rules_version_id = upgraded.id
-            workspace.policy_schema_version = 1
+            workspace.policy_schema_version = POLICY_SCHEMA_VERSION
             changed = True
         return changed
 
@@ -513,7 +504,6 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
                 workspace.root,
                 request.node_id,
                 request.agent_prompt,
-                workspace.harness.path or None,
             )
         except TerminalFailure as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

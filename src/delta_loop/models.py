@@ -194,6 +194,10 @@ class AgentRule(BaseModel):
     when: str = "Always"
     scope: str = "Entire project"
     expires_when: str = ""
+    loop_level: Literal["stage", "step"] = "step"
+    loop_parent_id: str = ""
+    loop_step_ids: list[str] = Field(default_factory=list)
+    source_label: str = ""
     enabled: bool = True
     cannot_override: bool = False
 

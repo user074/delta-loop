@@ -4,8 +4,8 @@
 
 **Scope:** Local, single-researcher proof of concept
 
-**Relationship:** An enhanced version built on `delta-research`: the upstream loop remains the updateable base,
-while Delta Loop owns the added human control, visual structure, persistent supervision, and policy behavior
+**Relationship:** An enhanced version of `delta-research`: Delta Loop imports its research cycle as the initial
+default, then owns the complete editable and versioned loop used at runtime
 
 ## 1. Why this plan is being revised
 
@@ -52,8 +52,8 @@ This table is the product requirements document for the POC. A proposed feature 
 | Human-facing summary | `SYNTHESIS.md` provides a narrative summary. | Better than raw reports, but still a static text projection with weak navigation and no control. | Render a visual briefing organized around conceptual changes, surprises, failures, decisions, and resource allocation. |
 | Initial conditions | `INIT.md`, `INFRA.md`, reference repos, datasets, checkpoints, environment, and constraints seed the loop. | Constrained agents with concrete code, data, libraries, and baselines are much more effective than an unconstrained research prompt. | Import and reuse this project context. Make inputs and permitted methods mandatory in research package templates. |
 | Research planning | The supervisor selects a high-value delta and writes a detailed plan. | The agent can propose plausible experiments that do not match the researcher's intended ablation, comparison, metric, or scientific taste. | Put a persistent human-supervisor refinement phase before delegation. The researcher approves structured changes to objective, controls, exclusions, and escalation rules. |
-| Research protocol | Delta provides a common loop and package conventions. | Researchers differ in how they implement, ablate, and escalate experiments. One researcher may prefer the cheapest discriminating probe first and do a full investigation only after seeing signal; another may require replication or a complete benchmark before branching. | Add selectable, editable, versioned research-protocol profiles. A profile defines investigation stages, default budgets and templates, evidence limits, and human-controlled promotion or stop gates without changing the Delta harness. |
-| Plan mutability | Plans are durable and increasingly constrained by templates. | Changing or adding rules during work is cumbersome and can be lost in conversation context. | Add versioned project-, arc-, and package-level policy editing with an effective-policy preview. Sealed packages retain the policy version they received. |
+| Research protocol | Delta provides a common loop and package conventions. | Researchers differ in how they implement, ablate, and escalate experiments. One researcher may prefer the cheapest discriminating probe first and do a full investigation only after seeing signal; another may require replication or a complete benchmark before branching. | Import the Delta cycle as ordered policy steps, then let researchers edit those steps and add selectable investigation profiles without rewriting a long Markdown prompt. |
+| Plan mutability | Plans are durable and increasingly constrained by templates. | Changing or adding rules during work is cumbersome and can be lost in conversation context. | Make the loop itself and its project-, idea-, and package-level rules editable through checked versions. Sealed packages retain the version they received. |
 | Autonomy | The loop can choose the next frontier item and continue until an interrupt boundary. | Broad autonomy tends to generate merely defensible next work, not necessarily the work the researcher wants. | Default to human-directed packages. Allow autonomy only inside a sealed package. Keep autonomous frontier selection as an optional future policy. |
 | Supervisor interaction | The terminal agent acts as supervisor and spawns workers. | One long conversation is high bandwidth and natural, but planning, execution, and delegation become entangled. | Keep a persistent interactive supervisor terminal, but make it attachable from the UI and scope it to the selected direction, approach, or package. Give it a file/CLI protocol for proposing package and state changes. |
 | Worker handoff | A worker receives a plan and returns a report. | This is valuable, but subagent ownership and intermediate decisions are often opaque. | Make the sealed work package and attempt first-class. Show exact scope, worker, status, deviations, result, and escalation without exposing every private reasoning token. |
@@ -69,7 +69,7 @@ This table is the product requirements document for the POC. A proposed feature 
 | State integration | `loopit` launches a fresh integration supervisor after each worker. | Independent integration can be useful, but it adds another full context load and model turn to every unit of work. | Batch review where possible. Use deterministic manifest ingestion; ask the persistent supervisor or human for interpretation only when scientific judgment is needed. |
 | Observability generation | `loopit` normalizes provider events and also uses agent reports and understanding turns. | Tool and process events are helpful; extra narration and observer turns consume tokens without changing the project. | Derive live status from CLI/tool/process events. Require only sparse structured progress markers. An explanation agent is optional and user-invoked. |
 | Token economy | Provider usage may be displayed, but runtime limits focus mainly on elapsed duration or iteration count. | High token usage can coexist with little project progress. Harness verification can look productive while crowding out real work. | Track tokens by role and compare them with durable research progress. Add overhead budgets, no-progress detection, and a hard requirement that the POC advance a real research question. |
-| Harness evolution | `delta-research` behavior is spread across large Markdown templates, generated agent instructions, and repeated rules. Tests validate examples or ask an LLM to review outputs. | A small change may require editing several files, asking an agent to reason about consistency, and spending tokens without knowing whether the new behavior will actually fire. | Turn the harness into composable, versioned rule and template modules. Add an effective-harness preview, deterministic checks, fixed scenarios, canary activation, runtime rule traces, and rollback. |
+| Loop evolution | `delta-research` behavior is spread across large Markdown templates, generated agent instructions, and repeated rules. Tests validate examples or ask an LLM to review outputs. | A small change may require editing several files, asking an agent to reason about consistency, and spending tokens without knowing whether the new behavior will actually fire. | Store the complete active cycle as ordered, composable policy entries and render one standalone `LOOP.md`. Show the result, check it with code, version it, and make rollback immediate. |
 | Storage | `delta-research` uses readable Markdown. The first POC proposed a new JSON object store plus SQLite cache. | Markdown is agent-friendly; the problem is its human interface and weak control, not necessarily its existence. A full migration adds risk before value is proven. | Preserve current scientific files. Add structured files only for new concepts such as arcs, policies, packages, attempts, and review decisions. Defer SQLite and full migration. |
 | Isolation | The first POC proposed one Git branch and worktree for every worker. | Many research tasks are read-only analyses or jobs against a fixed commit; worktrees add unnecessary setup and failure modes. | Use a fixed commit plus isolated run directory by default. Create a branch/worktree only when the package is allowed to change code. |
 
@@ -77,8 +77,8 @@ This table is the product requirements document for the POC. A proposed feature 
 
 ### Product thesis
 
-Delta Loop should be the practical `delta-research++`: retain the existing scientific loop and improve the
-boundary between human scientific judgment and delegated machine execution. It should not replace the
+Delta Loop should be the practical `delta-research++`: begin with the existing scientific loop, make that loop
+easy to understand and change, and improve the boundary between human scientific judgment and delegated machine execution. It should not replace the
 researcher's interactive agent, terminal, experiment tracker, or scientific judgment.
 
 The human owns:
@@ -132,7 +132,7 @@ Workers own bounded execution:
 - A versioned Harness Workbench for rules, templates, scenarios, activation, and rollback
 - A bounded worker launcher and observer
 - A progress and token-accounting experiment
-- A compatibility layer over existing Delta scientific artifacts
+- A complete editable research loop that remains compatible with existing Delta scientific artifacts
 
 ### The POC is not
 
@@ -168,16 +168,18 @@ flowchart TB
     K --> S
 ```
 
-### The real delta-research harness
+### The delta-research default
 
-Delta Loop does not fork or silently patch the scientific base. Each workspace records the exact local checkout,
-Git remote, and revision of [user074/delta-research](https://github.com/user074/delta-research). The active
-supervisor uses that checkout's `templates/SUPERVISOR.md`. Delta Loop generates `.delta-loop/LOOP.md` to add its
-own behavior and `.delta-loop/POLICY.md` for researcher-controlled choices. The embedded terminal receives all
-three paths explicitly.
+Delta Loop imports the concrete cycle from
+[user074/delta-research](https://github.com/user074/delta-research): read the current state, select grounded work,
+seal a plan, give it to a bounded worker, check the result, update research memory, and save or continue. These are
+ordinary ordered policy entries inside Delta Loop. The researcher may rename, reorder, disable, replace, or add
+steps through a checked version.
 
-The POC may fast-forward a clean official checkout after fetching upstream. It must refuse to overwrite local
-changes, merge a diverged checkout automatically, or silently use a different remote.
+Delta Loop renders the active version into a complete `.delta-loop/LOOP.md` and writes current idea choices to
+`.delta-loop/POLICY.md`. The supervisor does not read an outside `SUPERVISOR.md` at runtime. A recorded upstream
+URL and revision are provenance for the imported default and allow future comparison; they are not a second
+source of active behavior.
 
 ### Persistent terminal, not repeated `exec`
 
@@ -803,11 +805,11 @@ provenance
 Records execution validity, observation acceptance, interpretation, research update, and code integration as
 separate decisions with rationale and evidence references.
 
-### HarnessBundle and HarnessVersion
+### LoopVersion
 
-A bundle groups compatible rule modules, schemas, Markdown templates, renderers, validators, and scenario
-fixtures. Every immutable version records its parent, content hashes, author, rationale, validation results, and
-activation history. A small lock file identifies the active base version and project overrides.
+A loop version groups the ordered cycle steps with compatible extra rules, templates, renderers, validators, and
+fixed examples. Every immutable version records its parent, source provenance, author, rationale, validation
+results, and activation history. One active version generates the complete runtime instruction.
 
 ### HarnessRule
 
@@ -925,15 +927,16 @@ composed, activated, and tested.
 
 ### 11.1 Separate source rules from rendered Markdown
 
-The active harness is compiled from:
+The active loop is compiled from:
 
 ```text
-versioned base bundle
-  + project harness overrides
+ordered research-loop steps
+  + code / data / hardware / Git details attached to the steps that use them
+  + checks and temporary limits that apply across steps
   + selected research-protocol snapshot
   + research project / direction / package policies
   + package template
-  = effective harness snapshot
+  = effective loop snapshot
     → rendered HANDOFF.md, prompts, schemas, and validators
 ```
 
@@ -959,7 +962,7 @@ The enforcement type remains explicit:
 Delta displays three composed stacks rather than pretending they are the same kind of rule:
 
 ```text
-Operating contract:    Delta base harness < project harness override
+Operating contract:    active loop version < project rule
 Investigation style:   selected protocol profile < project override < direction / approach override
 Scientific constraint: project policy < direction policy < sealed package constraint
 ```

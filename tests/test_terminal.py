@@ -50,28 +50,28 @@ def test_terminal_can_start_an_agent_discussion(tmp_path: Path, monkeypatch) -> 
     manager.close(session.id)
 
 
-def test_agent_discussion_receives_real_harness_and_policy_paths(tmp_path: Path, monkeypatch) -> None:
+def test_agent_discussion_receives_complete_loop_and_policy_paths(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DELTA_LOOP_AGENT_COMMAND", "/usr/bin/printf")
-    harness = tmp_path / "delta-research"
     manager = TerminalManager()
     session = manager.create(
         "workspace",
         str(tmp_path),
         "idea-1",
         "Discuss the selected idea.",
-        str(harness),
     )
 
     output = b""
     for _ in range(60):
         output += manager.read(session.id)
-        if b"LOOP.md" in output and b"SUPERVISOR.md" in output and b"POLICY.md" in output:
+        if b"LOOP.md" in output and b"POLICY.md" in output:
             break
         time.sleep(0.05)
 
     assert str(tmp_path / ".delta-loop" / "LOOP.md").encode() in output
-    assert str(harness / "templates" / "SUPERVISOR.md").encode() in output
     assert str(tmp_path / ".delta-loop" / "POLICY.md").encode() in output
+    assert b"complete active loop" in output
+    assert b"another supervisor file" in output
+    assert b"SUPERVISOR.md" not in output
     manager.close(session.id)
 
 

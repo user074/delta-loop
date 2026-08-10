@@ -156,6 +156,10 @@ export interface AgentRule {
   when: string;
   scope: string;
   expires_when: string;
+  loop_level: "stage" | "step";
+  loop_parent_id: string;
+  loop_step_ids: string[];
+  source_label: string;
   enabled: boolean;
   cannot_override: boolean;
 }
