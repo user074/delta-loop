@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .harness import inspect_harness
 from .models import Claim, ProjectSnapshot, ResearchNode, RunRecord
 from .rules import initial_rules_version
 
@@ -232,4 +233,5 @@ def import_workspace(root_value: str | Path) -> ProjectSnapshot:
         scratch=scratch,
         rules_versions=[initial_rules_version()],
         active_rules_version_id="rules-v1",
+        harness=inspect_harness(root),
     )

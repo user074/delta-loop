@@ -4,7 +4,8 @@
 
 **Scope:** Local, single-researcher proof of concept
 
-**Relationship:** An interactive control and collaboration layer for `delta-research`, not a replacement for it
+**Relationship:** An enhanced version built on `delta-research`: the upstream loop remains the updateable base,
+while Delta Loop owns the added human control, visual structure, persistent supervision, and policy behavior
 
 ## 1. Why this plan is being revised
 
@@ -76,9 +77,9 @@ This table is the product requirements document for the POC. A proposed feature 
 
 ### Product thesis
 
-Delta Loop should improve the boundary between human scientific judgment and delegated machine execution. It
-should not attempt to replace the researcher's interactive agent, terminal, experiment tracker, or scientific
-judgment.
+Delta Loop should be the practical `delta-research++`: retain the existing scientific loop and improve the
+boundary between human scientific judgment and delegated machine execution. It should not replace the
+researcher's interactive agent, terminal, experiment tracker, or scientific judgment.
 
 The human owns:
 
@@ -166,6 +167,17 @@ flowchart TB
     K --> UI
     K --> S
 ```
+
+### The real delta-research harness
+
+Delta Loop does not fork or silently patch the scientific base. Each workspace records the exact local checkout,
+Git remote, and revision of [user074/delta-research](https://github.com/user074/delta-research). The active
+supervisor uses that checkout's `templates/SUPERVISOR.md`. Delta Loop generates `.delta-loop/LOOP.md` to add its
+own behavior and `.delta-loop/POLICY.md` for researcher-controlled choices. The embedded terminal receives all
+three paths explicitly.
+
+The POC may fast-forward a clean official checkout after fetching upstream. It must refuse to overwrite local
+changes, merge a diverged checkout automatically, or silently use a different remote.
 
 ### Persistent terminal, not repeated `exec`
 

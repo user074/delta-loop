@@ -4,14 +4,25 @@ import fcntl
 import os
 import pty
 import signal
+import shlex
 import struct
 import subprocess
+import sys
 import termios
 import threading
 from pathlib import Path
 from uuid import uuid4
 
 from .models import TerminalSessionInfo, now_iso
+
+
+DEFAULT_AGENT_COMMAND = (
+    "codex --no-alt-screen --sandbox workspace-write "
+    "-c sandbox_workspace_write.network_access=true "
+    "-c features.network_proxy.enabled=true "
+    "-c features.network_proxy.allow_local_binding=true "
+    "-c 'features.network_proxy.domains={ \"127.0.0.1\" = \"allow\" }'"
+)
 
 
 class TerminalFailure(ValueError):
@@ -37,7 +48,14 @@ class TerminalManager:
         self._sessions: dict[str, _TerminalRecord] = {}
         self._lock = threading.RLock()
 
-    def create(self, workspace_id: str, working_directory: str, node_id: str | None) -> TerminalSessionInfo:
+    def create(
+        self,
+        workspace_id: str,
+        working_directory: str,
+        node_id: str | None,
+        agent_prompt: str | None = None,
+        harness_path: str | None = None,
+    ) -> TerminalSessionInfo:
         root = Path(working_directory).expanduser().resolve()
         if not root.is_dir():
             raise TerminalFailure("The project folder no longer exists.")
@@ -46,13 +64,30 @@ class TerminalManager:
         session_id = f"terminal-{uuid4().hex[:10]}"
         env = {
             **os.environ,
+            "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}",
             "TERM": "xterm-256color",
+            "DELTA_LOOP_API_URL": "http://127.0.0.1:4318",
             "DELTA_LOOP_TERMINAL_ID": session_id,
             "DELTA_LOOP_WORKSPACE_ID": workspace_id,
             "DELTA_LOOP_NODE_ID": node_id or "",
+            "DELTA_LOOP_INSTRUCTIONS": str(root / ".delta-loop" / "LOOP.md"),
+            "DELTA_RESEARCH_HOME": harness_path or "",
         }
+        command = [shell, "-l"]
+        if agent_prompt:
+            if harness_path:
+                supervisor = Path(harness_path) / "templates" / "SUPERVISOR.md"
+                policy = root / ".delta-loop" / "POLICY.md"
+                loop_instructions = root / ".delta-loop" / "LOOP.md"
+                agent_prompt = (
+                    "This project uses Delta Loop's enhanced research instructions. Before doing research-loop "
+                    f"work, read {loop_instructions}. It combines the base contract at {supervisor} with the "
+                    f"researcher's active choices at {policy}.\n\n{agent_prompt}"
+                )
+            agent_command = os.environ.get("DELTA_LOOP_AGENT_COMMAND", DEFAULT_AGENT_COMMAND)
+            command = [*shlex.split(agent_command), agent_prompt]
         process = subprocess.Popen(
-            [shell, "-l"],
+            command,
             cwd=root,
             stdin=slave_fd,
             stdout=slave_fd,

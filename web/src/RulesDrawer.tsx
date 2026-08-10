@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Copy, Plus, RotateCcw, Save, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Copy, MessageSquareText, Plus, RotateCcw, Save, ShieldCheck, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { checkRules, createRulesDraft, useRules } from "./api";
 import type { AgentRule, RulesVersion, Workspace } from "./types";
@@ -13,12 +13,14 @@ export default function RulesDrawer({
   onClose,
   onWorkspace,
   onError,
+  onDiscuss,
 }: {
   open: boolean;
   workspace: Workspace;
   onClose: () => void;
   onWorkspace: (workspace: Workspace) => void;
   onError: (message: string) => void;
+  onDiscuss: () => void;
 }) {
   const active = workspace.rules_versions.find((version) => version.id === workspace.active_rules_version_id);
   const [editing, setEditing] = useState(false);
@@ -32,7 +34,7 @@ export default function RulesDrawer({
     setSelectedVersionId(workspace.active_rules_version_id ?? "");
     setRules(copyRules(active?.rules ?? []));
     setEditing(false);
-  }, [active, open, workspace.active_rules_version_id]);
+  }, [open, workspace.active_rules_version_id]);
 
   const changed = useMemo(
     () => JSON.stringify(rules) !== JSON.stringify(active?.rules ?? []),
@@ -48,6 +50,10 @@ export default function RulesDrawer({
       id: `custom-${Date.now()}`,
       title: "New rule",
       instruction: "",
+      category: "project",
+      when: "Always",
+      scope: "Entire project",
+      expires_when: "",
       enabled: true,
       cannot_override: false,
     }]);
@@ -63,7 +69,7 @@ export default function RulesDrawer({
       setSelectedVersionId(version.id);
       setEditing(false);
     } catch (caught) {
-      onError(caught instanceof Error ? caught.message : "Could not check the rules.");
+      onError(caught instanceof Error ? caught.message : "Could not check the policy.");
     } finally {
       setBusy(false);
     }
@@ -77,7 +83,7 @@ export default function RulesDrawer({
       setSelectedVersionId(version.id);
       setRules(copyRules(version.rules));
     } catch (caught) {
-      onError(caught instanceof Error ? caught.message : "Could not use these rules.");
+      onError(caught instanceof Error ? caught.message : "Could not use this policy.");
     } finally {
       setBusy(false);
     }
@@ -86,14 +92,17 @@ export default function RulesDrawer({
   if (!open) return null;
   return (
     <div className="rules-backdrop" role="presentation">
-      <aside className="rules-drawer" aria-label="Rules for agents">
+      <aside className="rules-drawer" aria-label="General policy">
         <div className="rules-head">
           <div>
-            <div className="section-kicker"><ShieldCheck size={14} /> Rules for agents</div>
-            <h2>Change how agents should work</h2>
-            <p>These rules apply to new plans. Plans you already approved keep the rules they received.</p>
+            <div className="section-kicker"><ShieldCheck size={14} /> General policy</div>
+            <h2>How the agent should usually work</h2>
+            <p>This applies across ideas. Work already started keeps the policy it received.</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close rules"><X size={18} /></button>
+          <div className="rules-head-actions">
+            <button className="discuss-button" onClick={onDiscuss}><MessageSquareText size={14} /> Discuss with agent</button>
+            <button className="icon-button" onClick={onClose} aria-label="Close policy"><X size={18} /></button>
+          </div>
         </div>
 
         <div className="rules-layout">
@@ -115,10 +124,10 @@ export default function RulesDrawer({
             {!editing && selected ? (
               <>
                 <div className="rules-content-head">
-                  <div><div className="section-kicker">Version {selected.version}</div><h3>{selected.status === "active" ? "Rules used for new plans" : "Saved rules"}</h3></div>
+                  <div><div className="section-kicker">Version {selected.version}</div><h3>{selected.status === "active" ? "Policy used for new work" : "Saved policy"}</h3></div>
                   <div className="rules-actions">
                     {selected.id === active?.id && <button onClick={() => { setRules(copyRules(selected.rules)); setEditing(true); }}><Copy size={14} /> Edit a copy</button>}
-                    {selected.status === "checked" && <button className="use-rules" disabled={busy} onClick={() => activate(selected)}><Check size={14} /> Use these rules</button>}
+                    {selected.status === "checked" && <button className="use-rules" disabled={busy} onClick={() => activate(selected)}><Check size={14} /> Use this policy</button>}
                     {selected.status === "retired" && <button disabled={busy} onClick={() => activate(selected)}><RotateCcw size={14} /> Go back to these</button>}
                   </div>
                 </div>
@@ -126,7 +135,8 @@ export default function RulesDrawer({
                 <div className="rules-read-list">
                   {selected.rules.map((rule) => (
                     <div className={rule.enabled ? "rule-read-card" : "rule-read-card disabled"} key={rule.id}>
-                      <div><strong>{rule.title}</strong>{rule.cannot_override && <span>Required</span>}</div>
+                      <div><strong>{rule.title}</strong><span>{rule.category}</span>{rule.cannot_override && <span>Required</span>}</div>
+                      <small className="rule-meta">{rule.when} · {rule.scope}{rule.expires_when ? ` · Until ${rule.expires_when}` : ""}</small>
                       <p>{rule.instruction}</p>
                       {!rule.enabled && <small>Turned off</small>}
                     </div>
@@ -136,7 +146,7 @@ export default function RulesDrawer({
             ) : (
               <>
                 <div className="rules-content-head">
-                  <div><div className="section-kicker">New version</div><h3>Edit a copy safely</h3><p>Your current rules stay in use until this copy passes its checks and you choose to use it. The check is done by code and does not spend agent tokens.</p></div>
+                  <div><div className="section-kicker">New version</div><h3>Edit a copy safely</h3><p>Your current policy stays in use until this copy passes its checks and you choose to use it. The check is done by code and does not spend agent tokens.</p></div>
                   <div className="rules-actions"><button onClick={() => setEditing(false)}>Cancel</button><button className="use-rules" onClick={saveAndCheck} disabled={!changed || busy}><Save size={14} /> Save and check</button></div>
                 </div>
                 <div className="rules-edit-list">
@@ -147,14 +157,18 @@ export default function RulesDrawer({
                         {rule.cannot_override ? <span>Required</span> : <button onClick={() => setRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /> Remove</button>}
                       </div>
                       <label><span>Short name</span><input disabled={rule.cannot_override} value={rule.title} onChange={(event) => updateRule(index, { title: event.target.value })} /></label>
+                      <label><span>Type</span><select disabled={rule.cannot_override} value={rule.category} onChange={(event) => updateRule(index, { category: event.target.value as AgentRule["category"] })}><option value="loop">Research loop</option><option value="checkpoint">Extra check</option><option value="project">Project</option><option value="git">Git and GitHub</option><option value="hardware">Hardware</option><option value="data">Data</option><option value="resources">Time and resources</option><option value="temporary">Temporary</option></select></label>
+                      <label><span>When does it apply?</span><input disabled={rule.cannot_override} value={rule.when} onChange={(event) => updateRule(index, { when: event.target.value })} /></label>
+                      <label><span>Where does it apply?</span><input disabled={rule.cannot_override} value={rule.scope} onChange={(event) => updateRule(index, { scope: event.target.value })} /></label>
+                      {rule.category === "temporary" && <label><span>When does it end?</span><input disabled={rule.cannot_override} value={rule.expires_when} onChange={(event) => updateRule(index, { expires_when: event.target.value })} /></label>}
                       <label><span>What the agent must do</span><textarea disabled={rule.cannot_override} rows={3} value={rule.instruction} onChange={(event) => updateRule(index, { instruction: event.target.value })} /></label>
                     </div>
                   ))}
                   <button className="add-rule-button" onClick={addRule}><Plus size={15} /> Add another rule</button>
                 </div>
                 <div className="rules-preview">
-                  <div><strong>What a new plan will tell the agent</strong><span>about {Math.ceil(rules.filter((rule) => rule.enabled).reduce((total, rule) => total + rule.instruction.length, 0) / 4)} tokens</span></div>
-                  <pre>{rules.filter((rule) => rule.enabled).map((rule) => `- ${rule.instruction || "[Write this rule]"}`).join("\n")}</pre>
+                  <div><strong>What new work will tell the agent</strong><span>about {Math.ceil(rules.filter((rule) => rule.enabled).reduce((total, rule) => total + rule.instruction.length, 0) / 4)} tokens</span></div>
+                  <pre>{rules.filter((rule) => rule.enabled).map((rule) => `- When ${rule.when || "[choose when]"}: ${rule.instruction || "[write what the agent should do]"} Applies to ${rule.scope || "[choose where]"}.${rule.expires_when ? ` Ends ${rule.expires_when}.` : ""}`).join("\n")}</pre>
                 </div>
               </>
             )}

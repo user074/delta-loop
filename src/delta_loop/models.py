@@ -13,6 +13,35 @@ EvidenceStrength = Literal["strong", "mixed", "weak", "none"]
 StageAction = Literal["promote", "repeat", "revise", "redirect", "stop"]
 PackageStatus = Literal["draft", "ready", "running", "finished", "failed", "cancelled"]
 AttemptStatus = Literal["starting", "running", "finished", "failed", "cancelled"]
+WorkKind = Literal[
+    "quick-test",
+    "replicate",
+    "literature-review",
+    "compare-explanations",
+    "ablation",
+    "full-study",
+    "research-engineering",
+]
+RuleCategory = Literal[
+    "loop",
+    "checkpoint",
+    "project",
+    "git",
+    "hardware",
+    "data",
+    "resources",
+    "temporary",
+]
+HarnessStatus = Literal[
+    "missing",
+    "current",
+    "modified",
+    "behind",
+    "ahead",
+    "diverged",
+    "unversioned",
+    "unknown",
+]
 
 
 def now_iso() -> str:
@@ -50,6 +79,17 @@ class ResearchNode(BaseModel):
     protocol_id: str | None = None
     current_stage: str | None = None
     outcome_counts: dict[str, int] = Field(default_factory=dict)
+    next_work_kind: WorkKind = "quick-test"
+    agent_guidance: str = ""
+    ask_before: str = ""
+    policy_updated_at: str = ""
+
+
+class QuestionRevision(BaseModel):
+    previous: str
+    current: str
+    reason: str = ""
+    created_at: str = Field(default_factory=now_iso)
 
 
 class ProtocolStage(BaseModel):
@@ -112,6 +152,9 @@ class WorkPackage(BaseModel):
     updated_at: str = Field(default_factory=now_iso)
     sealed_at: str | None = None
     rules_version_id: str | None = None
+    work_kind: WorkKind = "quick-test"
+    idea_guidance: str = ""
+    ask_before: str = ""
 
 
 class Attempt(BaseModel):
@@ -147,6 +190,10 @@ class AgentRule(BaseModel):
     id: str
     title: str
     instruction: str
+    category: RuleCategory = "project"
+    when: str = "Always"
+    scope: str = "Entire project"
+    expires_when: str = ""
     enabled: bool = True
     cannot_override: bool = False
 
@@ -161,6 +208,20 @@ class RulesVersion(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     checked_at: str | None = None
     activated_at: str | None = None
+
+
+class HarnessInfo(BaseModel):
+    source_url: str = "https://github.com/user074/delta-research.git"
+    path: str = ""
+    revision: str = ""
+    upstream_revision: str = ""
+    branch: str = ""
+    status: HarnessStatus = "unknown"
+    detail: str = "Harness status has not been checked."
+    local_changes: bool = False
+    commits_ahead: int = 0
+    commits_behind: int = 0
+    official_source: bool = True
 
 
 class TerminalSessionInfo(BaseModel):
@@ -196,18 +257,35 @@ class ProjectSnapshot(BaseModel):
     reviews: list[ResultReview] = Field(default_factory=list)
     rules_versions: list[RulesVersion] = Field(default_factory=list)
     active_rules_version_id: str | None = None
+    policy_schema_version: int = 0
+    policy_file: str = ""
+    loop_file: str = ""
+    policy_synced_at: str = ""
+    harness: HarnessInfo = Field(default_factory=HarnessInfo)
+    question_history: list[QuestionRevision] = Field(default_factory=list)
 
 
 class ImportRequest(BaseModel):
     path: str
 
 
+class WorkspacePatch(BaseModel):
+    goal: str
+    reason: str = ""
+
+
 class NodePatch(BaseModel):
+    title: str | None = None
+    summary: str | None = None
+    parent_id: str | None = None
     status: NodeStatus | None = None
     promise: Promise | None = None
     evidence_strength: EvidenceStrength | None = None
     protocol_id: str | None = None
     current_stage: str | None = None
+    next_work_kind: WorkKind | None = None
+    agent_guidance: str | None = None
+    ask_before: str | None = None
 
 
 class ProtocolDecisionRequest(BaseModel):
@@ -221,6 +299,7 @@ class QuickNoteRequest(BaseModel):
     text: str
     kind: Literal["idea", "way-to-test", "note", "question"] = "idea"
     parent_id: str | None = None
+    summary: str = ""
 
 
 class WorkPackageRequest(BaseModel):
@@ -260,3 +339,4 @@ class RulesDraftRequest(BaseModel):
 
 class TerminalCreateRequest(BaseModel):
     node_id: str | None = None
+    agent_prompt: str | None = Field(default=None, max_length=8000)

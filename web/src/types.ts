@@ -1,6 +1,14 @@
 export type NodeKind = "question" | "direction" | "approach";
 export type NodeStatus = "primary" | "active" | "dormant" | "closed";
 export type StageAction = "promote" | "repeat" | "revise" | "redirect" | "stop";
+export type WorkKind =
+  | "quick-test"
+  | "replicate"
+  | "literature-review"
+  | "compare-explanations"
+  | "ablation"
+  | "full-study"
+  | "research-engineering";
 
 export interface Claim {
   id: string;
@@ -33,6 +41,17 @@ export interface ResearchNode {
   protocol_id: string | null;
   current_stage: string | null;
   outcome_counts: Record<string, number>;
+  next_work_kind: WorkKind;
+  agent_guidance: string;
+  ask_before: string;
+  policy_updated_at: string;
+}
+
+export interface QuestionRevision {
+  previous: string;
+  current: string;
+  reason: string;
+  created_at: string;
 }
 
 export interface ProtocolStage {
@@ -95,6 +114,9 @@ export interface WorkPackage {
   updated_at: string;
   sealed_at: string | null;
   rules_version_id: string | null;
+  work_kind: WorkKind;
+  idea_guidance: string;
+  ask_before: string;
 }
 
 export interface Attempt {
@@ -130,6 +152,10 @@ export interface AgentRule {
   id: string;
   title: string;
   instruction: string;
+  category: "loop" | "checkpoint" | "project" | "git" | "hardware" | "data" | "resources" | "temporary";
+  when: string;
+  scope: string;
+  expires_when: string;
   enabled: boolean;
   cannot_override: boolean;
 }
@@ -156,6 +182,20 @@ export interface TerminalSessionInfo {
   last_active_at: string;
 }
 
+export interface HarnessInfo {
+  source_url: string;
+  path: string;
+  revision: string;
+  upstream_revision: string;
+  branch: string;
+  status: "missing" | "current" | "modified" | "behind" | "ahead" | "diverged" | "unversioned" | "unknown";
+  detail: string;
+  local_changes: boolean;
+  commits_ahead: number;
+  commits_behind: number;
+  official_source: boolean;
+}
+
 export interface Workspace {
   id: string;
   root: string;
@@ -179,4 +219,10 @@ export interface Workspace {
   reviews: ResultReview[];
   rules_versions: RulesVersion[];
   active_rules_version_id: string | null;
+  policy_schema_version: number;
+  policy_file: string;
+  loop_file: string;
+  policy_synced_at: string;
+  harness: HarnessInfo;
+  question_history: QuestionRevision[];
 }

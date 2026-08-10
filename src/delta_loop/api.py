@@ -9,13 +9,16 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .harness import HarnessFailure, inspect_harness, update_harness
 from .importer import ImportFailure, import_workspace
 from .models import (
+    HarnessInfo,
     ImportRequest,
     NodePatch,
     ProjectSnapshot,
     ProtocolDecision,
     ProtocolDecisionRequest,
+    QuestionRevision,
     QuickNote,
     QuickNoteRequest,
     ResearchNode,
@@ -28,10 +31,12 @@ from .models import (
     WorkPackage,
     WorkPackagePatch,
     WorkPackageRequest,
+    WorkspacePatch,
     now_iso,
 )
+from .policy_sync import LOOP_RELATIVE_PATH, POLICY_RELATIVE_PATH, PolicySyncFailure, sync_policy
 from .protocols import default_protocols, next_stage
-from .rules import check_rules, initial_rules_version
+from .rules import check_rules, initial_rules_version, upgrade_policy_rules
 from .runner import AttemptRunner, RunFailure
 from .store import WorkspaceStore
 from .terminal import TerminalFailure, TerminalManager
@@ -58,11 +63,30 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    def save_with_policy(workspace: ProjectSnapshot) -> ProjectSnapshot:
+        try:
+            sync_policy(workspace)
+        except PolicySyncFailure as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return store.save(workspace)
+
+    def policy_file_missing(workspace: ProjectSnapshot) -> bool:
+        root = Path(workspace.root).expanduser().resolve()
+        expected_policy = root / POLICY_RELATIVE_PATH
+        expected_loop = root / LOOP_RELATIVE_PATH
+        return (
+            workspace.policy_file != str(expected_policy)
+            or workspace.loop_file != str(expected_loop)
+            or not expected_policy.is_file()
+            or not expected_loop.is_file()
+        )
+
     def ensure_current_rules(workspace: ProjectSnapshot) -> bool:
         if not workspace.rules_versions:
             first = initial_rules_version()
             workspace.rules_versions = [first]
             workspace.active_rules_version_id = first.id
+            workspace.policy_schema_version = 1
             return True
         active = next(
             (
@@ -71,6 +95,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             ),
             None,
         )
+        changed = False
         if active and active.version == 1 and not any(
             rule.id == "real-work-first" for rule in active.rules
         ):
@@ -83,15 +108,41 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             baseline.activated_at = now_iso()
             workspace.rules_versions.append(baseline)
             workspace.active_rules_version_id = baseline.id
-            return True
-        return False
+            active = baseline
+            changed = True
+        if workspace.policy_schema_version < 1 and active:
+            upgraded_rules, rules_changed = upgrade_policy_rules(active)
+            if rules_changed:
+                active.status = "retired"
+                next_number = max(version.version for version in workspace.rules_versions) + 1
+                upgraded = RulesVersion(
+                    id=f"rules-v{next_number}",
+                    version=next_number,
+                    status="active",
+                    parent_id=active.id,
+                    rules=upgraded_rules,
+                    checked_at=now_iso(),
+                    activated_at=now_iso(),
+                )
+                workspace.rules_versions.append(upgraded)
+                workspace.active_rules_version_id = upgraded.id
+            workspace.policy_schema_version = 1
+            changed = True
+        return changed
+
+    def refresh_harness(workspace: ProjectSnapshot) -> bool:
+        harness = inspect_harness(workspace.root)
+        if harness == workspace.harness:
+            return False
+        workspace.harness = harness
+        return True
 
     def workspace_or_404(workspace_id: str) -> ProjectSnapshot:
         workspace = store.get(workspace_id)
         if not workspace:
             raise HTTPException(status_code=404, detail="Project not found.")
-        if ensure_current_rules(workspace):
-            store.save(workspace)
+        if ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
+            save_with_policy(workspace)
         return workspace
 
     @app.get("/api/health")
@@ -106,13 +157,31 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
     def list_workspaces() -> list[ProjectSnapshot]:
         workspaces = store.list()
         for workspace in workspaces:
-            if ensure_current_rules(workspace):
-                store.save(workspace)
+            if ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
+                save_with_policy(workspace)
         return workspaces
 
     @app.get("/api/workspaces/{workspace_id}", response_model=ProjectSnapshot)
     def get_workspace(workspace_id: str) -> ProjectSnapshot:
         return workspace_or_404(workspace_id)
+
+    @app.patch("/api/workspaces/{workspace_id}", response_model=ProjectSnapshot)
+    def update_workspace(workspace_id: str, patch: WorkspacePatch) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        goal = patch.goal.strip()
+        if not goal:
+            raise HTTPException(status_code=422, detail="Write the updated research question first.")
+        if goal == workspace.goal:
+            raise HTTPException(status_code=422, detail="The research question has not changed.")
+        workspace.question_history.append(
+            QuestionRevision(previous=workspace.goal, current=goal, reason=patch.reason.strip())
+        )
+        workspace.goal = goal
+        workspace.last_updated = now_iso()
+        question = next((node for node in workspace.nodes if node.kind == "question"), None)
+        if question:
+            question.title = goal
+        return save_with_policy(workspace)
 
     @app.post("/api/workspaces/import", response_model=ProjectSnapshot)
     def import_project(request: ImportRequest) -> ProjectSnapshot:
@@ -121,9 +190,8 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         except ImportFailure as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         workspace = store.put(workspace)
-        if ensure_current_rules(workspace):
-            store.save(workspace)
-        return workspace
+        ensure_current_rules(workspace)
+        return save_with_policy(workspace)
 
     @app.patch("/api/workspaces/{workspace_id}/nodes/{node_id}", response_model=ProjectSnapshot)
     def patch_node(workspace_id: str, node_id: str, patch: NodePatch) -> ProjectSnapshot:
@@ -131,18 +199,38 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         node = next((item for item in workspace.nodes if item.id == node_id), None)
         if not node:
             raise HTTPException(status_code=404, detail="Idea not found.")
+        if patch.title is not None and not patch.title.strip():
+            raise HTTPException(status_code=422, detail="The idea needs a short name.")
+        if patch.parent_id is not None:
+            parent = next((item for item in workspace.nodes if item.id == patch.parent_id), None)
+            expected_parent = "question" if node.kind == "direction" else "direction"
+            if node.kind == "question" or not parent or parent.kind != expected_parent:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "An idea must sit under the main question."
+                        if node.kind == "direction"
+                        else "A way to test an idea must sit under an idea."
+                    ),
+                )
         if patch.protocol_id:
             if node.kind != "approach":
                 raise HTTPException(status_code=422, detail="Testing styles apply only to ways of testing an idea.")
             if patch.protocol_id not in protocols:
                 raise HTTPException(status_code=422, detail="Testing style not found.")
-        for field, value in patch.model_dump(exclude_none=True).items():
+        changes = patch.model_dump(exclude_none=True)
+        if "title" in changes:
+            changes["title"] = changes["title"].strip()
+        for field, value in changes.items():
             setattr(node, field, value)
+        if {"next_work_kind", "agent_guidance", "ask_before"} & changes.keys():
+            node.policy_updated_at = now_iso()
+        workspace.last_updated = now_iso()
         if patch.protocol_id:
             profile = protocols[patch.protocol_id]
             if node.current_stage not in {stage.id for stage in profile.stages}:
                 node.current_stage = profile.stages[0].id
-        return store.save(workspace)
+        return save_with_policy(workspace)
 
     @app.post("/api/workspaces/{workspace_id}/notes", response_model=ProjectSnapshot)
     def add_note(workspace_id: str, request: QuickNoteRequest) -> ProjectSnapshot:
@@ -176,7 +264,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
                     id=f"idea-{uuid4().hex[:10]}",
                     kind="direction",
                     title=text,
-                    summary="Added from a quick note.",
+                    summary=request.summary.strip() or "Added after discussion.",
                     parent_id=question.id if question else None,
                     status="active",
                     promise="unassessed",
@@ -190,7 +278,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
                     id=f"test-{uuid4().hex[:10]}",
                     kind="approach",
                     title=text,
-                    summary="Added from a quick note.",
+                    summary=request.summary.strip() or "Added after discussion.",
                     parent_id=parent_id,
                     status="active",
                     promise="unassessed",
@@ -198,7 +286,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
                     current_stage="minimal-probe",
                 )
             )
-        return store.save(workspace)
+        return save_with_policy(workspace)
 
     @app.post("/api/workspaces/{workspace_id}/protocol-decisions", response_model=ProjectSnapshot)
     def decide_protocol_stage(
@@ -229,7 +317,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             rationale=request.rationale,
         )
         workspace.decisions.append(decision)
-        return store.save(workspace)
+        return save_with_policy(workspace)
 
     @app.post("/api/workspaces/{workspace_id}/plans", response_model=ProjectSnapshot)
     def create_plan(workspace_id: str, request: WorkPackageRequest) -> ProjectSnapshot:
@@ -251,6 +339,9 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             goal=approach.title,
             why_now=approach.summary,
             budget=stage.budget,
+            work_kind=approach.next_work_kind,
+            idea_guidance=approach.agent_guidance,
+            ask_before=approach.ask_before,
         )
         workspace.packages.append(package)
         return store.save(workspace)
@@ -338,7 +429,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             target = next_stage(profile, node.current_stage or profile.stages[0].id)
             if target:
                 node.current_stage = target
-        return store.save(workspace)
+        return save_with_policy(workspace)
 
     @app.post("/api/workspaces/{workspace_id}/rules/drafts", response_model=ProjectSnapshot)
     def create_rules_draft(workspace_id: str, request: RulesDraftRequest) -> ProjectSnapshot:
@@ -378,7 +469,25 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         version.status = "active"
         version.activated_at = now_iso()
         workspace.active_rules_version_id = version.id
-        return store.save(workspace)
+        return save_with_policy(workspace)
+
+    @app.post("/api/workspaces/{workspace_id}/policy/sync", response_model=ProjectSnapshot)
+    def sync_workspace_policy(workspace_id: str) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        return save_with_policy(workspace)
+
+    @app.get("/api/workspaces/{workspace_id}/harness", response_model=HarnessInfo)
+    def get_harness(workspace_id: str) -> HarnessInfo:
+        return workspace_or_404(workspace_id).harness
+
+    @app.post("/api/workspaces/{workspace_id}/harness/update", response_model=ProjectSnapshot)
+    def update_workspace_harness(workspace_id: str) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        try:
+            workspace.harness = update_harness(workspace.root)
+        except HarnessFailure as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return save_with_policy(workspace)
 
     @app.get(
         "/api/workspaces/{workspace_id}/terminals",
@@ -399,7 +508,13 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         if request.node_id and not any(node.id == request.node_id for node in workspace.nodes):
             raise HTTPException(status_code=404, detail="Selected idea not found.")
         try:
-            return terminals.create(workspace.id, workspace.root, request.node_id)
+            return terminals.create(
+                workspace.id,
+                workspace.root,
+                request.node_id,
+                request.agent_prompt,
+                workspace.harness.path or None,
+            )
         except TerminalFailure as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

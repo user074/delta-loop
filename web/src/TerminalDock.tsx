@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Box, ChevronDown, ChevronUp, Plug, SquareTerminal, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { closeTerminal, createTerminal, listTerminals } from "./api";
+import type { DiscussionRequest } from "./discussions";
 import type { ResearchNode, TerminalSessionInfo, Workspace } from "./types";
 
 function TerminalView({ session, onEnded }: { session: TerminalSessionInfo; onEnded: (sessionId: string) => void }) {
@@ -83,29 +84,55 @@ function TerminalView({ session, onEnded }: { session: TerminalSessionInfo; onEn
 export default function TerminalDock({
   workspace,
   selectedNode,
+  discussion,
   onError,
 }: {
   workspace: Workspace;
   selectedNode: ResearchNode | null;
+  discussion: DiscussionRequest | null;
   onError: (message: string) => void;
 }) {
   const [sessions, setSessions] = useState<TerminalSessionInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [activeTopic, setActiveTopic] = useState<string | null>(null);
+  const handledDiscussion = useRef<number | null>(null);
+  const openingDiscussion = useRef(false);
   const active = sessions.find((session) => session.id === activeId) ?? null;
 
   useEffect(() => {
     listTerminals(workspace.id)
       .then((items) => {
         setSessions(items);
+        if (openingDiscussion.current) return;
         const matching = items.find(
           (item) => item.status === "active" && item.node_id === selectedNode?.id,
         );
         setActiveId(matching?.id ?? null);
+        setActiveTopic(null);
       })
       .catch((caught: unknown) => onError(caught instanceof Error ? caught.message : "Could not load terminals."));
   }, [onError, selectedNode?.id, workspace.id]);
+
+  useEffect(() => {
+    if (!discussion || handledDiscussion.current === discussion.id) return;
+    handledDiscussion.current = discussion.id;
+    openingDiscussion.current = true;
+    setBusy(true);
+    createTerminal(workspace.id, discussion.nodeId, discussion.prompt)
+      .then((session) => {
+        setSessions((current) => [...current, session]);
+        setActiveId(session.id);
+        setActiveTopic(discussion.topic);
+        setExpanded(true);
+      })
+      .catch((caught: unknown) => onError(caught instanceof Error ? caught.message : "Could not open the agent chat."))
+      .finally(() => {
+        openingDiscussion.current = false;
+        setBusy(false);
+      });
+  }, [discussion, onError, workspace.id]);
 
   async function openTerminal() {
     setBusy(true);
@@ -116,6 +143,7 @@ export default function TerminalDock({
       const session = existing ?? (await createTerminal(workspace.id, selectedNode?.id ?? null));
       if (!existing) setSessions((current) => [...current, session]);
       setActiveId(session.id);
+      setActiveTopic(null);
       setExpanded(true);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : "Could not open the terminal.");
@@ -129,12 +157,14 @@ export default function TerminalDock({
     await closeTerminal(active.id);
     setSessions((current) => current.map((item) => item.id === active.id ? { ...item, status: "exited" } : item));
     setActiveId(null);
+    setActiveTopic(null);
     setExpanded(false);
   }
 
   const markTerminalEnded = useCallback((sessionId: string) => {
     setSessions((current) => current.map((item) => item.id === sessionId ? { ...item, status: "exited" } : item));
     setActiveId((current) => current === sessionId ? null : current);
+    setActiveTopic(null);
     setExpanded(false);
   }, []);
 
@@ -143,9 +173,9 @@ export default function TerminalDock({
       <div className="terminal-bar">
         <div>
           <SquareTerminal size={15} />
-          Terminal
+          {activeTopic ? "Agent chat" : "Terminal"}
           <span>·</span>
-          {selectedNode?.title ?? "No idea selected"}
+          {activeTopic ?? selectedNode?.title ?? "No idea selected"}
         </div>
         <div className="terminal-controls">
           {active ? (

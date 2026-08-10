@@ -51,16 +51,34 @@ class WorkspaceStore:
                 workspace.active_rules_version_id = (
                     previous.active_rules_version_id or workspace.active_rules_version_id
                 )
+                workspace.policy_schema_version = previous.policy_schema_version
+                workspace.policy_file = previous.policy_file
+                workspace.loop_file = previous.loop_file
+                workspace.policy_synced_at = previous.policy_synced_at
+                workspace.question_history = previous.question_history
+                if previous.question_history:
+                    workspace.goal = previous.goal
+                    question = next((node for node in workspace.nodes if node.kind == "question"), None)
+                    if question:
+                        question.title = previous.goal
                 prior_nodes = {node.id: node for node in previous.nodes}
                 imported_node_ids = {node.id for node in workspace.nodes}
                 for node in workspace.nodes:
                     old = prior_nodes.get(node.id)
                     if old:
+                        if node.kind != "question":
+                            node.title = old.title
+                            node.summary = old.summary
+                            node.parent_id = old.parent_id
                         node.status = old.status
                         node.promise = old.promise
                         node.evidence_strength = old.evidence_strength
                         node.protocol_id = old.protocol_id
                         node.current_stage = old.current_stage
+                        node.next_work_kind = old.next_work_kind
+                        node.agent_guidance = old.agent_guidance
+                        node.ask_before = old.ask_before
+                        node.policy_updated_at = old.policy_updated_at
                 workspace.nodes.extend(
                     node for node in previous.nodes if node.id not in imported_node_ids
                 )
