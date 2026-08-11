@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Clock3,
   Cpu,
-  GitBranch,
   MessageSquareText,
   RotateCcw,
   Route,
@@ -42,9 +41,9 @@ const workPolicyReferences: Record<string, string> = {
   replicate: "Uses “Replicate before expanding” above.",
   "literature-review": "Uses “Check the literature at major milestones” above.",
   "full-study": "Uses “Ask before a full study” above.",
-  "compare-explanations": "Uses the default loop plus this idea’s special instructions.",
-  ablation: "Uses the default loop plus this idea’s special instructions.",
-  "research-engineering": "Uses the default loop plus this idea’s special instructions.",
+  "compare-explanations": "Uses the research loop plus this idea’s special instructions.",
+  ablation: "Uses the research loop plus this idea’s special instructions.",
+  "research-engineering": "Uses the research loop plus this idea’s special instructions.",
 };
 
 const checkpointReferences: Record<string, string> = {
@@ -140,17 +139,6 @@ export default function PolicyPage({
         <div><BookOpen size={15} /><span>Special cases</span><strong>{ideaExceptions.length}</strong></div>
       </div>
 
-      <div className={`harness-sync-state ${workspace.harness.status}`}>
-        <GitBranch size={18} />
-        <div>
-          <strong>Default loop imported from delta-research</strong>
-          <span>Delta Loop owns the editable copy used by the agent. The source checkout is only for comparing or importing future changes.</span>
-        </div>
-        <a href={workspace.harness.source_url.replace(/\.git$/, "")} target="_blank" rel="noreferrer">
-          {workspace.harness.revision ? workspace.harness.revision.slice(0, 7) : "user074/delta-research"}
-        </a>
-      </div>
-
       <div className="policy-sync-state">
         <CheckCircle2 size={18} />
         <div>
@@ -162,7 +150,7 @@ export default function PolicyPage({
 
       <section className="policy-loop-section">
         <div className="policy-section-head">
-          <div><div className="section-kicker"><Route size={14} /> Default research loop</div><h2>Review the loop at the level you need</h2></div>
+          <div><div className="section-kicker"><Route size={14} /> Research loop</div><h2>Review the loop at the level you need</h2></div>
           <div className="rules-actions">
             <button onClick={() => discussPolicy("the default research loop from reading the current state through saving the result and continuing")}><MessageSquareText size={14} /> Chat</button>
             <button onClick={onEditGeneral}><SlidersHorizontal size={14} /> Edit loop</button>
@@ -287,8 +275,8 @@ export default function PolicyPage({
           {approaches.map((approach) => (
             <div className={selectedNode?.id === approach.id ? "idea-policy-row selected" : "idea-policy-row"} key={approach.id}>
               <div><strong>{approach.title}</strong><span>{approach.status === "dormant" ? "Parked" : approach.status}</span></div>
-              <div><small>Next work</small><strong>{workKindLabels[approach.next_work_kind] ?? approach.next_work_kind}</strong><span className="work-policy-reference">{workPolicyReferences[approach.next_work_kind] ?? "Uses the default loop."}</span></div>
-              <div><small>Special instructions</small><p>{approach.agent_guidance || "Use the default loop."}</p></div>
+              <div><small>Next work</small><strong>{workKindLabels[approach.next_work_kind] ?? approach.next_work_kind}</strong><span className="work-policy-reference">{workPolicyReferences[approach.next_work_kind] ?? "Uses the research loop."}</span></div>
+              <div><small>Special instructions</small><p>{approach.agent_guidance || "Use the research loop."}</p></div>
               <div><small>Must ask before</small><p>{approach.ask_before || "Use the general checkpoints."}</p></div>
               <button onClick={() => discussIdea(approach)}><MessageSquareText size={14} /> Chat</button>
             </div>

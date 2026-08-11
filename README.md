@@ -31,9 +31,9 @@ Delta Loop stores its own history in `.delta-loop-data/`, which is ignored by Gi
 - `.delta-loop/POLICY.md` contains the researcher's active project and idea-specific choices.
 
 An agent started by Delta Loop receives both files before doing research. It does not read or combine another
-supervisor prompt at runtime. The initial default was imported from
-[user074/delta-research](https://github.com/user074/delta-research); a local checkout is optional provenance for
-comparing future upstream changes, not a runtime dependency.
+supervisor prompt at runtime. Its built-in research cycle was adapted from
+[user074/delta-research](https://github.com/user074/delta-research), but Delta Loop owns and runs the editable
+policy. A local checkout is optional and used only when explicitly comparing upstream changes.
 
 ## Run locally
 

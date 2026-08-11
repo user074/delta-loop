@@ -64,7 +64,8 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         assert "# Active Delta Loop Policy" in policy_text
         assert "**Quick Test**" in policy_text
         assert "start of every cycle" in policy_text
-        assert "Default loop imported from" in policy_text
+        assert "Default loop imported from" not in policy_text
+        assert "Imported source revision" not in policy_text
         assert imported["harness"]["source_url"].endswith("user074/delta-research.git")
         loop_text = loop_file.read_text(encoding="utf-8")
         assert "# Delta Loop Research Instructions" in loop_text
@@ -79,9 +80,9 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         assert "delta-research · PLAN Resources" in loop_text
         assert "Git workflow" not in loop_text
         assert "SUPERVISOR.md" not in loop_text
+        assert "Initial default came from" not in loop_text
         assert "## Delta Loop Policy" in loop_text
         assert "DELTA_LOOP_WORKSPACE_ID" in loop_text
-        assert imported["harness"]["revision"] in loop_text or not imported["harness"]["revision"]
 
         patch_response = client.patch(
             f"/api/workspaces/{workspace_id}/nodes/{approach['id']}",

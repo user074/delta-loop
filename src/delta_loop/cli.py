@@ -377,10 +377,6 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
     print(f"Main question: {context['main_question']}")
     if context["research_loop_instructions"]:
         print(f"Complete research loop: {context['research_loop_instructions']}")
-    harness = context.get("base_harness") or {}
-    if harness.get("revision"):
-        revision = (harness.get("revision") or "unknown")[:7]
-        print(f"Default originally imported from delta-research: {revision}")
     if node:
         print(f"Selected {node['kind']}: {node['title']}")
         if node["kind"] == "approach":
