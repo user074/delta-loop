@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Delta Loop local runtime
+.delta-loop-data/
+web/node_modules/
+web/dist/
