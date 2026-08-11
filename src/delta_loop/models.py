@@ -42,6 +42,7 @@ HarnessStatus = Literal[
     "unversioned",
     "unknown",
 ]
+TerminalKind = Literal["shell", "discussion", "research"]
 
 
 def now_iso() -> str:
@@ -233,6 +234,7 @@ class TerminalSessionInfo(BaseModel):
     workspace_id: str
     node_id: str | None = None
     working_directory: str
+    kind: TerminalKind = "shell"
     status: Literal["active", "exited", "lost"] = "active"
     created_at: str = Field(default_factory=now_iso)
     last_active_at: str = Field(default_factory=now_iso)
@@ -344,3 +346,4 @@ class RulesDraftRequest(BaseModel):
 class TerminalCreateRequest(BaseModel):
     node_id: str | None = None
     agent_prompt: str | None = Field(default=None, max_length=8000)
+    kind: TerminalKind = "shell"

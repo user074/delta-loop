@@ -94,7 +94,7 @@ export function generalPolicyDiscussion(
       "Use the categories loop, checkpoint, project, git, hardware, data, resources, and temporary. Keep the research loop short enough for a human to understand.",
       "Required safety rules cannot be removed. Do not change the active policy until the researcher clearly agrees.",
       "For one change, use `delta rules add` or `delta rules update`. For several related changes, run `delta rules show --json`, create one complete updated JSON list in a temporary file, and use `delta rules apply FILE` so they become one version. Use `delta rules --help` when needed.",
-      "Using a policy version automatically rewrites `.delta-loop/POLICY.md` and `.delta-loop/LOOP.md` in the research project. LOOP.md combines the unchanged delta-research base with Delta Loop's added controls. Do not edit either generated file by hand.",
+      "Using a policy version automatically rewrites `.delta-loop/POLICY.md` and `.delta-loop/LOOP.md` in the research project. LOOP.md is the complete active research loop. Do not edit either generated file by hand.",
       "After saving, run `delta rules show` again and summarize what is active, what is off, and any temporary limit that will expire.",
     ].join("\n\n"),
   };

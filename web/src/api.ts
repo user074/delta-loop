@@ -76,10 +76,11 @@ export function createTerminal(
   workspaceId: string,
   nodeId: string | null,
   agentPrompt?: string,
+  kind: TerminalSessionInfo["kind"] = "shell",
 ): Promise<TerminalSessionInfo> {
   return request(`/api/workspaces/${workspaceId}/terminals`, {
     method: "POST",
-    body: JSON.stringify({ node_id: nodeId, agent_prompt: agentPrompt ?? null }),
+    body: JSON.stringify({ node_id: nodeId, agent_prompt: agentPrompt ?? null, kind }),
   });
 }
 

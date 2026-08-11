@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, GitBranch, Import, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { ArrowRight, BookOpen, GitBranch, Import, Play, RefreshCw, RotateCcw, ShieldCheck, SquareTerminal, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { getWorkspace, importWorkspace, listWorkspaces } from "./api";
 import type { DiscussionRequest } from "./discussions";
@@ -7,7 +7,7 @@ import HomePage from "./HomePage";
 import PolicyPage from "./PolicyPage";
 import ResearchPage from "./ResearchPage";
 import RulesDrawer from "./RulesDrawer";
-import type { Workspace } from "./types";
+import type { ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
 
 type View = "home" | "research" | "policy";
 
@@ -36,6 +36,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [discussion, setDiscussion] = useState<DiscussionRequest | null>(null);
+  const [researchStartRequest, setResearchStartRequest] = useState<ResearchLaunchRequest | null>(null);
+  const [researchSession, setResearchSession] = useState<TerminalSessionInfo | null>(null);
+  const [researchStarting, setResearchStarting] = useState(false);
 
   useEffect(() => {
     listWorkspaces()
@@ -60,6 +63,27 @@ export default function App() {
     if (request.nodeId) setSelectedId(request.nodeId);
     setDiscussion({ ...request, id: Date.now() });
   }, []);
+
+  const startOrOpenResearch = useCallback(() => {
+    setResearchStarting(true);
+    setResearchStartRequest((current) => ({
+      id: (current?.id ?? 0) + 1,
+      nodeId: view === "research" ? selectedNode?.id ?? null : null,
+      sourcePage: view,
+    }));
+  }, [selectedNode?.id, view]);
+
+  const finishResearchStart = useCallback(() => setResearchStarting(false), []);
+  const researchActive = researchSession?.status === "active";
+  const researchStartedBefore = Boolean(researchSession);
+  const hasVisualResearchFocus = view === "research" && Boolean(selectedNode);
+  const researchActionLabel = researchStarting
+    ? "Opening…"
+    : researchActive
+      ? "Open research"
+      : researchStartedBefore
+        ? hasVisualResearchFocus ? "Continue from selection" : "Continue research"
+        : hasVisualResearchFocus ? "Start from selection" : "Start research";
 
   useEffect(() => {
     if (!workspace?.id) return;
@@ -108,11 +132,27 @@ export default function App() {
 
       <main className="main-shell">
         <header className="topbar">
-          <div>
+          <div className="topbar-project-meta">
             <div className="eyebrow">Delta Loop / {workspace?.name ?? "No project"}</div>
             <div className="topbar-title"><span className="status-dot" />{workspace?.status ?? "Waiting"}<span className="topbar-separator">·</span>Updated {relativeDate(workspace?.last_updated ?? "")}</div>
           </div>
           <div className="topbar-actions">
+            {workspace && (
+              <button
+                className={researchActive ? "topbar-research-button active" : "topbar-research-button"}
+                disabled={researchStarting}
+                onClick={startOrOpenResearch}
+                aria-label={researchActionLabel}
+                title={researchActive
+                  ? "Watch the running research session"
+                  : hasVisualResearchFocus
+                    ? `Start with the selected ${selectedNode?.kind}: ${selectedNode?.title}`
+                    : "Start the agent with the full research map, active loop, and policy"}
+              >
+                {researchStarting ? <RotateCcw className="spin" size={16} /> : researchActive ? <SquareTerminal size={16} /> : researchStartedBefore ? <RotateCcw size={16} /> : <Play size={16} />}
+                <span>{researchActionLabel}</span>
+              </button>
+            )}
             <button className="ghost-button" onClick={() => setImportOpen(true)}><Import size={16} /> Open another project</button>
           </div>
         </header>
@@ -148,7 +188,15 @@ export default function App() {
             )}
 
             <Suspense fallback={<div className="terminal-loading">Opening terminal…</div>}>
-              <TerminalDock workspace={workspace} selectedNode={selectedNode} discussion={discussion} onError={setError} />
+              <TerminalDock
+                workspace={workspace}
+                selectedNode={selectedNode}
+                discussion={discussion}
+                researchStartRequest={researchStartRequest}
+                onResearchSessionChange={setResearchSession}
+                onResearchStartFinished={finishResearchStart}
+                onError={setError}
+              />
             </Suspense>
           </>
         )}

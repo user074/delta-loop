@@ -181,9 +181,16 @@ export interface TerminalSessionInfo {
   workspace_id: string;
   node_id: string | null;
   working_directory: string;
+  kind: "shell" | "discussion" | "research";
   status: "active" | "exited" | "lost";
   created_at: string;
   last_active_at: string;
+}
+
+export interface ResearchLaunchRequest {
+  id: number;
+  nodeId: string | null;
+  sourcePage: "home" | "research" | "policy";
 }
 
 export interface HarnessInfo {

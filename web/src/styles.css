@@ -59,6 +59,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #5a966f; }
 .topbar-separator { color: #aaa79d; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+.topbar-research-button {
+  height: 36px; padding: 0 13px; display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid #a7c555; border-radius: 7px; background: var(--acid); color: #303822;
+  cursor: pointer; font-size: 11px; font-weight: 800;
+}
+.topbar-research-button:hover { background: #e3ff91; border-color: #8eaa45; }
+.topbar-research-button.active { border-color: #4c765e; background: #3f7358; color: white; }
+.topbar-research-button.active:hover { background: #35654d; }
+.topbar-research-button:disabled { opacity: .58; cursor: wait; }
 .ghost-button, .icon-button {
   border: 1px solid var(--line); background: #f8f6f0; border-radius: 7px; height: 36px; cursor: pointer;
 }
@@ -304,4 +313,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .rules-content-head { flex-direction: column; }
   .rules-drawer { width: 100%; }.rules-layout { grid-template-columns: 1fr; }.rules-version-list { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }.rules-version-list > strong { display: none; }.rules-version-list button { min-width: 120px; }
   .home-page, .policy-control-page { padding-left: 16px; padding-right: 16px; }.home-section-head, .slide-title-row, .slide-decision-row { align-items: flex-start; flex-direction: column; }.question-actions, .research-header-actions, .policy-control-actions { flex-wrap: wrap; }.slide-summary-grid { grid-template-columns: 1fr; }.slide-summary-grid .result-cell { grid-column: auto; }.research-state-row { grid-template-columns: 1fr; }.policy-sync-state { align-items: flex-start; flex-wrap: wrap; }.policy-sync-state code { margin-left: 28px; }.policy-loop-section, .policy-rules-section, .idea-rules-section { padding: 15px; }.policy-section-head { flex-direction: column; }.policy-history-row { align-items: flex-start; flex-direction: column; gap: 10px; }
+}
+@media (max-width: 460px) {
+  .topbar-project-meta .topbar-title { display: none; }
+  .topbar-research-button { width: 36px; padding: 0; }
+  .topbar-research-button span { display: none; }
 }

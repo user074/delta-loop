@@ -498,12 +498,24 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         workspace = workspace_or_404(workspace_id)
         if request.node_id and not any(node.id == request.node_id for node in workspace.nodes):
             raise HTTPException(status_code=404, detail="Selected idea not found.")
+        if request.kind == "research":
+            existing = next(
+                (
+                    session
+                    for session in terminals.list(workspace.id)
+                    if session.kind == "research" and session.status == "active"
+                ),
+                None,
+            )
+            if existing:
+                return existing
         try:
             return terminals.create(
                 workspace.id,
                 workspace.root,
                 request.node_id,
                 request.agent_prompt,
+                request.kind,
             )
         except TerminalFailure as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

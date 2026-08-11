@@ -13,6 +13,7 @@ without replacing the terminal.
 - Map every test and result back to the idea it examined
 - Discuss the research map with an agent that can add, clarify, move, or park ideas and ways to test them
 - Show which ideas worked, failed, remain uncertain, or have not been tested
+- Start, reopen, or continue one persistent research-supervisor session from the Home page
 - Keep detailed agent plans underneath while showing only the method, data, and question to the researcher
 - Review the loop as main stages, child steps, or exact details; code, data, hardware, file, and Git instructions appear inside the steps that use them
 - See whether an instruction came from `delta-research`, a researcher preference, or a local lab rule

@@ -403,3 +403,27 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
     assert any(rule["category"] == "loop" for rule in active["rules"])
     assert any(rule["category"] == "checkpoint" for rule in active["rules"])
     assert any(rule["id"] == "plan-exact-inputs" for rule in active["rules"])
+
+
+def test_starting_research_reuses_the_active_supervisor(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "research"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    monkeypatch.setenv("DELTA_LOOP_AGENT_COMMAND", "/bin/sh -c 'sleep 5'")
+    app = create_app(tmp_path / "loop-data.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/import", json={"path": str(project)}).json()
+        focus = next(node for node in workspace["nodes"] if node["kind"] == "direction")
+        payload = {
+            "node_id": focus["id"],
+            "agent_prompt": f"Start the real research loop with visual focus on {focus['title']}.",
+            "kind": "research",
+        }
+        first = client.post(f"/api/workspaces/{workspace['id']}/terminals", json=payload).json()
+        second = client.post(f"/api/workspaces/{workspace['id']}/terminals", json=payload).json()
+        client.delete(f"/api/terminals/{first['id']}")
+
+    assert first["kind"] == "research"
+    assert first["node_id"] == focus["id"]
+    assert second["id"] == first["id"]

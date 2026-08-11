@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from uuid import uuid4
 
-from .models import TerminalSessionInfo, now_iso
+from .models import TerminalKind, TerminalSessionInfo, now_iso
 
 
 DEFAULT_AGENT_COMMAND = (
@@ -54,6 +54,7 @@ class TerminalManager:
         working_directory: str,
         node_id: str | None,
         agent_prompt: str | None = None,
+        kind: TerminalKind = "shell",
     ) -> TerminalSessionInfo:
         root = Path(working_directory).expanduser().resolve()
         if not root.is_dir():
@@ -101,6 +102,7 @@ class TerminalManager:
             workspace_id=workspace_id,
             node_id=node_id,
             working_directory=str(root),
+            kind=kind,
         )
         with self._lock:
             self._sessions[session_id] = _TerminalRecord(info, process, master_fd)
