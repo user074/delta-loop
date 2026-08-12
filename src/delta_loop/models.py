@@ -45,6 +45,8 @@ HarnessStatus = Literal[
 TerminalKind = Literal["shell", "discussion", "research"]
 ComputeKind = Literal["local", "ssh"]
 ComputeStatus = Literal["unchecked", "ready", "unreachable", "needs-setup"]
+ProjectSetupStatus = Literal["needs-setup", "ready"]
+ProjectSource = Literal["local", "remote"]
 
 
 def now_iso() -> str:
@@ -332,6 +334,24 @@ class ComputeInspection(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class RemoteProjectInspectRequest(BaseModel):
+    ssh_host: str
+    project_path: str
+
+
+class RemoteProjectInspection(BaseModel):
+    host: str
+    project_path: str
+    project_exists: bool = False
+    top_level_files: list[str] = Field(default_factory=list)
+    documentation: dict[str, str] = Field(default_factory=dict)
+    git_branch: str = ""
+    git_remote: str = ""
+    git_status: list[str] = Field(default_factory=list)
+    recent_commits: list[str] = Field(default_factory=list)
+    inspected_at: str = Field(default_factory=now_iso)
+
+
 class ProjectSnapshot(BaseModel):
     id: str
     root: str
@@ -363,10 +383,21 @@ class ProjectSnapshot(BaseModel):
     question_history: list[QuestionRevision] = Field(default_factory=list)
     compute: ComputeConfig = Field(default_factory=ComputeConfig)
     compute_inspection: ComputeInspection | None = None
+    setup_status: ProjectSetupStatus = "ready"
+    setup_summary: str = ""
+    reference_repos: list[str] = Field(default_factory=list)
+    setup_constraints: list[str] = Field(default_factory=list)
+    project_source: ProjectSource = "local"
 
 
 class ImportRequest(BaseModel):
     path: str
+
+
+class ProjectSetupRequest(BaseModel):
+    summary: str
+    reference_repos: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
 
 
 class WorkspacePatch(BaseModel):

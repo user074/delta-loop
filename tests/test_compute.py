@@ -97,6 +97,41 @@ def test_compute_setup_can_be_reset_without_removing_research(tmp_path: Path) ->
         assert (project / "STATE.md").is_file()
 
 
+def test_remote_project_setup_reads_only_bounded_useful_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = tmp_path / "existing-remote-repo"
+    project.mkdir()
+    (project / "README.md").write_text("# Remote study\nThis studies long inputs.\n", encoding="utf-8")
+    (project / "AGENTS.md").write_text("Use the existing evaluation script.\n", encoding="utf-8")
+    (project / "pyproject.toml").write_text("[project]\nname = 'remote-study'\n", encoding="utf-8")
+    (project / ".env").write_text("SECRET_SHOULD_NOT_BE_READ=1\n", encoding="utf-8")
+    (project / "large-result.bin").write_bytes(b"result" * 1000)
+    monkeypatch.setenv("DELTA_LOOP_SSH_COMMAND", str(fake_ssh(tmp_path)))
+    app = create_app(tmp_path / "data" / "workspaces.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/remote").json()
+        response = client.post(
+            f"/api/workspaces/{workspace['id']}/setup/inspect-remote",
+            json={
+                "ssh_host": "fake-server",
+                "project_path": str(project),
+            },
+        )
+        assert response.status_code == 200
+        inspection = response.json()
+        assert inspection["project_exists"] is True
+        assert "This studies long inputs" in inspection["documentation"]["README.md"]
+        assert "existing evaluation script" in inspection["documentation"]["AGENTS.md"]
+        assert ".env" not in inspection["top_level_files"]
+        assert ".env" not in inspection["documentation"]
+        assert "large-result.bin" in inspection["top_level_files"]
+        assert "large-result.bin" not in inspection["documentation"]
+        refreshed = client.get(f"/api/workspaces/{workspace['id']}").json()
+        assert refreshed["name"] == "existing-remote-repo"
+
+
 def test_remote_compute_settings_check_and_run_over_ssh(
     tmp_path: Path, monkeypatch
 ) -> None:

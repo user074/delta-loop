@@ -296,4 +296,9 @@ export interface Workspace {
   question_history: QuestionRevision[];
   compute: ComputeConfig;
   compute_inspection: ComputeInspection | null;
+  setup_status: "needs-setup" | "ready";
+  setup_summary: string;
+  reference_repos: string[];
+  setup_constraints: string[];
+  project_source: "local" | "remote";
 }

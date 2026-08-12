@@ -191,10 +191,11 @@ The agent must not turn this into open-ended server exploration. One determinist
 routine questions without consuming repeated agent turns; deeper investigation requires a specific problem or the
 researcher's request.
 
-The first setup choice is explicit: **this computer** or **remote server**. It is made in the UI before the Codex
-conversation starts, and the choice is passed into the setup prompt. Local setup inspects the current project and
-machine; remote setup asks for SSH connection details before inspecting. The agent does not spend a turn asking
-which of these two paths the researcher intended.
+When no project is open, the first choice is explicit: **this computer** or **remote server**. It is made in the UI
+before the Codex conversation starts. Local setup opens an existing folder. Remote setup creates only a local Delta
+Loop notes folder, asks for the existing SSH host and project path, and combines project understanding with compute
+setup. The remote repository does not need a local checkout or a pre-existing `STATE.md`, and it remains unchanged
+during onboarding. The agent does not spend a turn asking which of these two paths the researcher intended.
 
 ### The delta-research default
 
@@ -1280,7 +1281,7 @@ flowchart LR
 
 The POC must run against one real research repository and one real unresolved question. For example:
 
-1. Import an existing `delta-research` project and its historical runs.
+1. Open an existing research project. Import `STATE.md` and historical runs when present; otherwise use the Codex-led initialization conversation to understand the repository, agree on the question and initial ideas, and create the first state.
 2. Capture one lightweight lab note and convert it into the `C1 Exception` direction.
 3. Create two or more competing approaches and link them as alternatives.
 4. Record separate activity, promise, and evidence signals; explain why one approach is primary and another

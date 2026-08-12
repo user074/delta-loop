@@ -15,6 +15,49 @@ function opening(topic: string) {
   ];
 }
 
+export function projectSetupDiscussion(workspace: Workspace): Omit<DiscussionRequest, "id"> {
+  return {
+    nodeId: workspace.nodes.find((node) => node.kind === "question")?.id ?? null,
+    topic: "setting up this research project",
+    prompt: [
+      ...opening("an existing project that does not have a research state yet"),
+      `The project folder is: ${workspace.root}`,
+      "No STATE.md was found. Follow the delta-research initialization approach, adapted for Delta Loop. Do not start experiments, install packages, change Git, or edit the research code during setup.",
+      "First make one bounded read-only pass through the repository. Read existing README.md, AGENTS.md or CLAUDE.md, dependency files, important entry points, experiment scripts, and the top-level structure. Check Git status. Do not read generated data, caches, checkpoints, large artifacts, or every source file.",
+      "Then lead with a short explanation of what you think the project does and let the researcher correct it. Continue one short round at a time: (1) the research question and what has already worked or failed, (2) hypotheses and competing explanations plus what would change their mind, (3) reference repositories, libraries, datasets, checkpoints, or existing implementations to reuse, and (4) success conditions, time limits, things not to touch, and irreversible actions. Never dump all questions into one form-like message.",
+      "Keep project facts found in the repository separate from choices supplied by the researcher. Reuse existing AGENTS.md, CLAUDE.md, README.md, and INFRA.md; do not overwrite them. Delta Loop owns the generated .delta-loop/LOOP.md and .delta-loop/POLICY.md files.",
+      "When you understand the project, present a compact proposed setup: main question, short project summary, initial ideas or hypotheses, ways to test them, references to reuse, and project constraints. Wait for explicit approval before saving anything.",
+      "After approval, use `delta question set` for the question. Use `delta map add-idea` once per initial idea and `delta map add-test --under IDEA_ID` for agreed ways to test it. Add only agreed behavioral constraints with `delta rules add`; do not turn descriptive project facts into rules.",
+      "Finish with exactly one `delta project finish-setup --summary SUMMARY` command, adding one `--reference VALUE` per approved reference and one `--constraint VALUE` per approved constraint. This creates the initial STATE.md and marks setup complete. Do not create or hand-edit STATE.md yourself.",
+      "Run `delta context` and `delta map show` afterward. Explain what was created and tell the researcher that compute remains Unset until they choose this computer or a remote server on the Compute page.",
+      "Use `delta project finish-setup --help`, `delta map --help`, and `delta rules --help` when needed.",
+    ].join("\n\n"),
+  };
+}
+
+export function remoteProjectSetupDiscussion(workspace: Workspace): Omit<DiscussionRequest, "id"> {
+  return {
+    nodeId: workspace.nodes.find((node) => node.kind === "question")?.id ?? null,
+    topic: "setting up the project already on your server",
+    prompt: [
+      ...opening("an existing research project that stays on a remote server"),
+      `Delta Loop created this local notes folder: ${workspace.root}`,
+      "The research code is not in that local folder. It stays on the researcher's server. Do not ask the researcher to clone it locally or create STATE.md on the server.",
+      "First ask only for two things: the SSH host or alias they already use, and the full path to the existing project on that server. Never ask for a password, private key, token, or other secret.",
+      "After receiving both values, run exactly one `delta project inspect-remote --host HOST --project PROJECT_PATH` command. This is a bounded, read-only check of the project structure, selected documentation and setup files, recent Git history, and Git status. Do not repeat it unless it fails or the researcher asks.",
+      "Also run exactly one `delta compute inspect --host HOST --project PROJECT_PATH` command. This is a bounded, read-only check of the server, environment tools, storage, scheduler, and visible hardware. Do not browse unrelated server folders.",
+      "Explain in plain language what the project appears to do and what the server provides. Keep facts found on the server separate from choices supplied by the researcher. Let them correct your understanding.",
+      "Continue one short round at a time: (1) the research question and what has already worked or failed, (2) initial ideas, competing explanations, and what would change their mind, (3) references, datasets, libraries, checkpoints, or existing implementations to reuse, and (4) the exact environment setup, allowed GPUs, number of simultaneous runs, data and output locations, Git rules, time limits, and things not to touch. Never dump all questions into one form-like message.",
+      "Do not install software, clone or move the project, edit remote files, change Git, create data, or start research work during setup. Reuse existing README.md, AGENTS.md, CLAUDE.md, and INFRA.md. Present one compact proposed research and server setup, then wait for explicit approval.",
+      "After approval, save the remote location with `delta compute set --kind ssh --name NAME --host HOST --project PROJECT_PATH --runs RUN_PATH --setup SETUP_COMMAND --gpus GPU_LIST --max-parallel NUMBER`. Omit optional values only when the researcher explicitly leaves them unrestricted. Run `delta compute check`; do not continue until it reports ready.",
+      "Then use `delta question set` for the agreed question, `delta map add-idea` once per initial idea, and `delta map add-test --under IDEA_ID` for agreed ways to test it. Add only agreed behavioral limits with `delta rules add`; do not turn every observed project fact into a rule.",
+      "Finish with exactly one `delta project finish-setup --summary SUMMARY` command, adding one `--reference VALUE` per approved reference and one `--constraint VALUE` per approved constraint. This creates STATE.md in the local Delta Loop notes folder, not in the remote repository. Do not create or hand-edit STATE.md yourself.",
+      "Finally run `delta context`, `delta map show`, and `delta compute show`. Explain what was saved locally, what points to the server, and that the remote repository was not changed during setup.",
+      "Use `delta project inspect-remote --help`, `delta compute --help`, `delta map --help`, and `delta rules --help` when needed.",
+    ].join("\n\n"),
+  };
+}
+
 export function questionDiscussion(workspace: Workspace): Omit<DiscussionRequest, "id"> {
   const question = workspace.nodes.find((node) => node.kind === "question");
   return {

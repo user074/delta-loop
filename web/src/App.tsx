@@ -1,8 +1,8 @@
 import { ArrowRight, BookOpen, GitBranch, Import, Play, RefreshCw, RotateCcw, Server, ShieldCheck, SquareTerminal, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { getWorkspace, importWorkspace, listWorkspaces } from "./api";
+import { createRemoteWorkspace, getWorkspace, importWorkspace, listWorkspaces } from "./api";
 import type { DiscussionRequest } from "./discussions";
-import { generalPolicyDiscussion } from "./discussions";
+import { generalPolicyDiscussion, projectSetupDiscussion, remoteProjectSetupDiscussion } from "./discussions";
 import HomePage from "./HomePage";
 import ComputePage from "./ComputePage";
 import PolicyPage from "./PolicyPage";
@@ -11,6 +11,7 @@ import RulesDrawer from "./RulesDrawer";
 import type { ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
 
 type View = "home" | "research" | "policy" | "compute";
+type ImportMode = "choose" | "local";
 
 const TerminalDock = lazy(() => import("./TerminalDock"));
 
@@ -33,6 +34,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [importMode, setImportMode] = useState<ImportMode>("choose");
   const [importPath, setImportPath] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -50,6 +52,7 @@ export default function App() {
           const firstApproach = workspaces[0].nodes.find((node) => node.kind === "approach");
           setSelectedId(firstApproach?.id ?? workspaces[0].nodes[0]?.id ?? null);
         } else {
+          setImportMode("choose");
           setImportOpen(true);
         }
       })
@@ -60,20 +63,31 @@ export default function App() {
     () => workspace?.nodes.find((node) => node.id === selectedId) ?? null,
     [selectedId, workspace],
   );
+  const projectNeedsSetup = workspace?.setup_status === "needs-setup";
 
   const openDiscussion = useCallback((request: Omit<DiscussionRequest, "id">) => {
     if (request.nodeId) setSelectedId(request.nodeId);
     setDiscussion({ ...request, id: Date.now() });
   }, []);
 
+  const setupDiscussion = useCallback((project: Workspace) => (
+    project.project_source === "remote"
+      ? remoteProjectSetupDiscussion(project)
+      : projectSetupDiscussion(project)
+  ), []);
+
   const startOrOpenResearch = useCallback(() => {
+    if (workspace?.setup_status === "needs-setup") {
+      openDiscussion(setupDiscussion(workspace));
+      return;
+    }
     setResearchStarting(true);
     setResearchStartRequest((current) => ({
       id: (current?.id ?? 0) + 1,
       nodeId: view === "research" ? selectedNode?.id ?? null : null,
       sourcePage: view,
     }));
-  }, [selectedNode?.id, view]);
+  }, [openDiscussion, selectedNode?.id, setupDiscussion, view, workspace]);
 
   const finishResearchStart = useCallback(() => setResearchStarting(false), []);
   const researchActive = researchSession?.status === "active";
@@ -81,6 +95,8 @@ export default function App() {
   const hasVisualResearchFocus = view === "research" && Boolean(selectedNode);
   const researchActionLabel = researchStarting
     ? "Opening…"
+    : projectNeedsSetup
+      ? "Set up project"
     : researchActive
       ? "Open research"
       : researchStartedBefore
@@ -106,11 +122,38 @@ export default function App() {
       setSelectedId(firstApproach?.id ?? imported.nodes[0]?.id ?? null);
       setImportOpen(false);
       setView("home");
+      if (imported.setup_status === "needs-setup") {
+        openDiscussion(setupDiscussion(imported));
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open the project.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleRemoteProject() {
+    setBusy(true);
+    setError("");
+    try {
+      const created = await createRemoteWorkspace();
+      setWorkspace(created);
+      setSelectedId(created.nodes[0]?.id ?? null);
+      setImportOpen(false);
+      setView("home");
+      openDiscussion(remoteProjectSetupDiscussion(created));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not start remote setup.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openProjectChooser() {
+    setImportMode("choose");
+    setImportPath("");
+    setError("");
+    setImportOpen(true);
   }
 
   if (!workspace && !importOpen) return <div className="loading-screen">Opening your research project…</div>;
@@ -129,7 +172,7 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="sidebar-foot"><div className="local-dot" /><span>{!workspace?.compute.configured ? "Compute not set up" : workspace.compute.kind === "ssh" ? "Remote work" : "Local work"}</span></div>
+        <div className="sidebar-foot"><div className={!workspace?.compute.configured ? "local-dot unset" : "local-dot"} /><span>{!workspace?.compute.configured ? "Unset" : workspace.compute.kind === "ssh" ? "Remote work" : "Local work"}</span></div>
       </aside>
 
       <main className="main-shell">
@@ -147,6 +190,8 @@ export default function App() {
                 aria-label={researchActionLabel}
                 title={researchActive
                   ? "Watch the running research session"
+                  : projectNeedsSetup
+                    ? "Use Codex to understand and set up this existing project"
                   : hasVisualResearchFocus
                     ? `Start with the selected ${selectedNode?.kind}: ${selectedNode?.title}`
                     : "Start the agent with the full research map, active loop, and policy"}
@@ -155,11 +200,23 @@ export default function App() {
                 <span>{researchActionLabel}</span>
               </button>
             )}
-            <button className="ghost-button" onClick={() => setImportOpen(true)}><Import size={16} /> Open another project</button>
+            <button className="ghost-button" onClick={openProjectChooser}><Import size={16} /> Open another project</button>
           </div>
         </header>
 
         {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div>}
+
+        {workspace?.setup_status === "needs-setup" && (
+          <section className="project-setup-banner">
+            <div>
+              <strong>Set up this project</strong>
+              <p>{workspace.project_source === "remote"
+                ? "Codex will connect to the existing repository on your server, discuss the research and server rules with you, then save the setup after you approve it."
+                : "Codex will read the existing repository, discuss the research with you, and create the initial research state after you approve it."}</p>
+            </div>
+            <button onClick={() => openDiscussion(setupDiscussion(workspace))}><SquareTerminal size={15} /> Chat with Codex</button>
+          </section>
+        )}
 
         {workspace && (
           <>
@@ -213,19 +270,44 @@ export default function App() {
 
       {importOpen && (
         <div className="modal-backdrop" role="presentation">
-          <form className="import-card" onSubmit={handleImport}>
-            <button type="button" className="modal-close" aria-label="Close import" onClick={() => workspace && setImportOpen(false)}><X size={18} /></button>
-            <div className="import-icon"><Import size={22} /></div>
-            <div className="section-kicker">Open an existing project</div>
-            <h2>Choose your research folder</h2>
-            <p>Choose a local folder containing <code>STATE.md</code>. Delta Loop reads the research records and writes its active rules to <code>.delta-loop/POLICY.md</code>.</p>
-            <label htmlFor="project-path">Project folder</label>
-            <input id="project-path" autoFocus value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="/path/to/research-project" />
-            {error && <div className="form-error">{error}</div>}
-            <button className="primary-button" disabled={!importPath.trim() || busy}>
-              {busy ? <RefreshCw className="spin" size={17} /> : <ArrowRight size={17} />}{busy ? "Reading project…" : "Open project"}
-            </button>
-          </form>
+          {importMode === "choose" ? (
+            <div className="import-card first-run-card">
+              {workspace && <button type="button" className="modal-close" aria-label="Close project chooser" onClick={() => setImportOpen(false)}><X size={18} /></button>}
+              <div className="import-icon"><Import size={22} /></div>
+              <div className="section-kicker">Open an existing project</div>
+              <h2>Where is your project?</h2>
+              <p>Choose where the research code already lives. Delta Loop will help with the rest.</p>
+              <div className="project-location-choices">
+                <button type="button" className="project-location-choice" onClick={() => setImportMode("local")} disabled={busy}>
+                  <span className="project-location-icon"><Import size={21} /></span>
+                  <span><strong>This computer</strong><small>Choose a folder already on this computer.</small></span>
+                  <ArrowRight size={18} />
+                </button>
+                <button type="button" className="project-location-choice" onClick={handleRemoteProject} disabled={busy}>
+                  <span className="project-location-icon remote"><Server size={21} /></span>
+                  <span><strong>Remote server</strong><small>Tell Codex which SSH connection and project folder to use.</small></span>
+                  {busy ? <RefreshCw className="spin" size={18} /> : <ArrowRight size={18} />}
+                </button>
+              </div>
+              {error && <div className="form-error">{error}</div>}
+              <p className="first-run-note">During setup, Delta Loop reads only what it needs and does not change your research code.</p>
+            </div>
+          ) : (
+            <form className="import-card" onSubmit={handleImport}>
+              {workspace && <button type="button" className="modal-close" aria-label="Close import" onClick={() => setImportOpen(false)}><X size={18} /></button>}
+              <button type="button" className="modal-back-button" onClick={() => { setImportMode("choose"); setError(""); }}>← Back</button>
+              <div className="import-icon"><Import size={22} /></div>
+              <div className="section-kicker">This computer</div>
+              <h2>Choose your research folder</h2>
+              <p>Any existing research folder works. Codex will help set it up if it has not used Delta Loop before.</p>
+              <label htmlFor="project-path">Project folder</label>
+              <input id="project-path" autoFocus value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="/path/to/research-project" />
+              {error && <div className="form-error">{error}</div>}
+              <button className="primary-button" disabled={!importPath.trim() || busy}>
+                {busy ? <RefreshCw className="spin" size={17} /> : <ArrowRight size={17} />}{busy ? "Reading project…" : "Open project"}
+              </button>
+            </form>
+          )}
         </div>
       )}
 

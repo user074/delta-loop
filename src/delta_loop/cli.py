@@ -41,6 +41,37 @@ def main() -> None:
     context_parser.add_argument("--node")
     context_parser.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
 
+    project_parser = subparsers.add_parser(
+        "project", help="Finish the initial setup of an existing research project"
+    )
+    project_subparsers = project_parser.add_subparsers(
+        dest="project_command", required=True
+    )
+    project_finish = project_subparsers.add_parser(
+        "finish-setup",
+        help="Create the initial STATE.md after the researcher approves the setup",
+    )
+    project_finish.add_argument("--summary", required=True)
+    project_finish.add_argument("--reference", action="append", default=[])
+    project_finish.add_argument("--constraint", action="append", default=[])
+    project_finish.add_argument("--workspace")
+    project_finish.add_argument(
+        "--url",
+        default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+    )
+    project_inspect = project_subparsers.add_parser(
+        "inspect-remote",
+        help="Read a bounded set of project files from an existing SSH server",
+    )
+    project_inspect.add_argument("--host", required=True, dest="ssh_host")
+    project_inspect.add_argument("--project", required=True, dest="project_path")
+    project_inspect.add_argument("--json", action="store_true", dest="as_json")
+    project_inspect.add_argument("--workspace")
+    project_inspect.add_argument(
+        "--url",
+        default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+    )
+
     compute_parser = subparsers.add_parser(
         "compute", help="Read, change, or check where research work runs"
     )
@@ -232,6 +263,25 @@ def main() -> None:
 
     if args.command == "context":
         _show_context(args.url, args.workspace, args.node, args.as_json)
+        return
+
+    if args.command == "project":
+        if args.project_command == "inspect-remote":
+            _inspect_remote_project(
+                args.url,
+                args.workspace,
+                args.ssh_host,
+                args.project_path,
+                args.as_json,
+            )
+        else:
+            _finish_project_setup(
+                args.url,
+                args.workspace,
+                args.summary,
+                args.reference,
+                args.constraint,
+            )
         return
 
     if args.command == "compute":
@@ -511,6 +561,8 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
         print(json.dumps(context, indent=2))
         return
     print(f"Main question: {context['main_question']}")
+    if workspace.get("setup_status") == "needs-setup":
+        print("Project setup: incomplete — agree on the question and idea map before research starts")
     compute = context["compute"] or {}
     if not compute.get("configured"):
         print("Work runs on: not set up")
@@ -555,6 +607,75 @@ def _show_compute(base_url: str, workspace_id: str | None, as_json: bool) -> Non
     print(f"At most {compute.get('max_parallel', 1)} run(s) at once")
     print(f"Connection: {compute.get('status', 'unchecked')}")
     print(compute.get("status_message") or "Not checked yet.")
+
+
+def _finish_project_setup(
+    base_url: str,
+    workspace_id: str | None,
+    summary: str,
+    references: list[str],
+    constraints: list[str],
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    updated = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/setup/complete",
+        method="POST",
+        payload={
+            "summary": summary,
+            "reference_repos": references,
+            "constraints": constraints,
+        },
+    )
+    print(f"Project setup complete: {updated['name']}")
+    print(f"Main question: {updated['goal']}")
+    print(f"Created: {updated['root']}/STATE.md")
+    print("Compute remains separate; use the Compute page before starting research work.")
+
+
+def _inspect_remote_project(
+    base_url: str,
+    workspace_id: str | None,
+    ssh_host: str,
+    project_path: str,
+    as_json: bool,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    inspection = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/setup/inspect-remote",
+        method="POST",
+        payload={"ssh_host": ssh_host, "project_path": project_path},
+    )
+    if as_json:
+        print(json.dumps(inspection, indent=2))
+        return
+    print(
+        f"Remote project: {inspection['project_path']} "
+        f"({'found' if inspection['project_exists'] else 'missing'})"
+    )
+    if inspection["top_level_files"]:
+        print("Project files (bounded to two levels):")
+        for name in inspection["top_level_files"]:
+            print(f"- {name}")
+    for name, content in inspection["documentation"].items():
+        print(f"\n--- {name} (bounded excerpt) ---")
+        print(content.rstrip())
+    if inspection["git_branch"] or inspection["git_remote"]:
+        print(
+            f"\nGit: branch {inspection['git_branch'] or 'unknown'} · "
+            f"origin {inspection['git_remote'] or 'not set'}"
+        )
+    if inspection["git_status"]:
+        print("Changed paths (at most 60):")
+        for line in inspection["git_status"]:
+            print(f"- {line}")
+    if inspection["recent_commits"]:
+        print("Recent commits:")
+        for line in inspection["recent_commits"]:
+            print(f"- {line}")
 
 
 def _set_compute(

@@ -44,6 +44,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .nav-item.active { color: #24241f; background: var(--acid); }
 .sidebar-foot { padding: 20px 0; display: flex; align-items: center; gap: 6px; font-size: 10px; color: #aaa89f; }
 .local-dot { width: 6px; height: 6px; border-radius: 50%; background: #83c697; box-shadow: 0 0 0 3px #83c69722; }
+.local-dot.unset { background: #dd675c; box-shadow: 0 0 0 3px #dd675c22; }
 
 .main-shell { margin-left: 84px; width: calc(100% - 84px); min-height: 100vh; padding-bottom: 104px; }
 .topbar {
@@ -80,6 +81,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   background: #fff0e8; color: #8e4025; border: 1px solid #e8b8a6; border-radius: 7px; font-size: 12px;
 }
 .error-banner button { border: 0; background: transparent; cursor: pointer; }
+.project-setup-banner { margin: 16px 30px 0; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #a7b47e; border-radius: 9px; background: #f2f8dd; }
+.project-setup-banner strong { display: block; font-size: 14px; }
+.project-setup-banner p { max-width: 760px; margin: 5px 0 0; color: #626752; font-size: 10px; line-height: 1.5; }
+.project-setup-banner button { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 9px 11px; border: 1px solid #2a2a24; border-radius: 6px; background: #2a2a24; color: white; cursor: pointer; font-size: 9px; font-weight: 700; }
 .section-kicker { display: flex; align-items: center; gap: 6px; }
 
 .workspace-grid { display: grid; grid-template-columns: minmax(600px, 1fr) 365px; min-height: 620px; }
@@ -182,6 +187,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .import-card code { padding: 2px 4px; background: #e8e4da; border-radius: 3px; font: 10px "SFMono-Regular", Consolas, monospace; }
 .import-card label { display: block; margin-bottom: 6px; color: #55544e; font-size: 10px; font-weight: 700; }
 .import-card input { width: 100%; border: 1px solid #c8c3b8; border-radius: 7px; background: white; padding: 11px 12px; font: 11px "SFMono-Regular", Consolas, monospace; }
+.first-run-card { width: min(560px, 100%); }
+.project-location-choices { display: grid; gap: 10px; margin: 24px 0 18px; }
+.project-location-choice { width: 100%; display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 13px; padding: 14px; border: 1px solid #c8c3b8; border-radius: 9px; background: #fff; color: var(--ink); text-align: left; cursor: pointer; }
+.project-location-choice:hover { border-color: #757168; background: #f8f6f0; transform: translateY(-1px); }
+.project-location-choice:disabled { opacity: .55; cursor: wait; transform: none; }
+.project-location-choice > span:nth-child(2) { min-width: 0; }
+.project-location-choice strong { display: block; margin-bottom: 3px; font-size: 12px; }
+.project-location-choice small { display: block; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.project-location-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 7px; background: var(--acid); }
+.project-location-icon.remote { background: #dce6df; }
+.import-card .first-run-note { margin: 0; padding-top: 15px; border-top: 1px solid var(--line); font-size: 10px; }
+.modal-back-button { margin: -4px 0 18px; padding: 0; border: 0; background: transparent; color: #66635c; cursor: pointer; font-size: 10px; font-weight: 700; }
 .primary-button { width: 100%; margin-top: 12px; padding: 11px; border: 1px solid #1e1e1a; border-radius: 7px; background: #282822; color: white; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font-size: 11px; font-weight: 700; }
 .primary-button:disabled { opacity: .5; cursor: not-allowed; }.form-error { margin-top: 8px; color: #a64e30; font-size: 10px; }
 .loading-screen { min-height: 100vh; display: grid; place-items: center; color: var(--muted); font: 12px "SFMono-Regular", Consolas, monospace; }
@@ -436,6 +453,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .compute-page { padding-left: 16px; padding-right: 16px; }.compute-head { flex-direction: column; }.compute-choice, .compute-fields, .compute-side { grid-template-columns: 1fr; }.compute-fields label.wide { grid-column: auto; }
   .compute-codex-setup { padding: 18px; }.compute-setup-steps { grid-template-columns: 1fr; }
   .compute-codex-targets { grid-template-columns: 1fr; }
+  .project-setup-banner { margin-left: 16px; margin-right: 16px; align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 460px) {
   .topbar-project-meta .topbar-title { display: none; }

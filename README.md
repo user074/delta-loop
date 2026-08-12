@@ -6,7 +6,7 @@ without replacing the terminal.
 
 ## What the POC can do
 
-- Import an existing `delta-research` project from `STATE.md`
+- Open an existing research project on this computer or an SSH server; import its `STATE.md` when present, or let Codex set it up when no state exists
 - Start with the real `user074/delta-research` cycle as an editable default and record its source revision
 - Show the editable main question and keep its earlier wording when the question changes
 - Present the latest result and review as a compact research-update slide
@@ -28,8 +28,9 @@ without replacing the terminal.
 - Open a real terminal tied to the selected idea; hiding the panel does not stop the process
 - Review whether a run followed the plan, whether the result is trustworthy, and what to do next
 
-Delta Loop stores its own history in `.delta-loop-data/`, which is ignored by Git. The app does not rewrite
-`STATE.md`, `INFRA.md`, or the source repository. It generates two files inside the research project:
+Delta Loop stores its own history in `.delta-loop-data/`, which is ignored by Git. For a local project it generates
+two files inside the research project. For a remote project it keeps these files in a small local notes folder, so
+the repository on the server is not changed during setup:
 
 - `.delta-loop/LOOP.md` is the complete active research loop used by the agent.
 - `.delta-loop/POLICY.md` contains the researcher's active project and idea-specific choices.
@@ -67,6 +68,8 @@ in the UI:
 
 ```bash
 delta context
+delta project inspect-remote --host lab-gpu --project ~/projects/my-research
+delta project finish-setup --summary "Short project summary" --reference /path/to/reference --constraint "Do not change the evaluation dataset"
 delta compute show
 delta compute inspect --local
 delta compute inspect --host lab-gpu --project ~/projects/my-research
@@ -98,6 +101,13 @@ Delta Loop itself stays on your computer. Its web page, terminal, research map, 
 Compute page can send only approved research runs to one server over SSH. It uses the same host or alias that works
 with `ssh HOST` in your terminal, so Delta Loop never stores SSH passwords or private keys.
 
+On a clean start, choose **Remote server**. Delta Loop creates an empty local notes folder and opens Codex. Give
+Codex the SSH host or alias and the existing project folder on the server. Codex makes one bounded read-only pass
+over the project and one bounded server check, explains what it found, and asks for the research and server choices
+it cannot infer. Nothing is installed or run during this conversation. After you approve the proposal, Codex saves
+the remote connection, checks the exact environment, creates the initial local research state, and leaves the remote
+repository unchanged.
+
 For each remote run, Delta Loop copies the sealed plan to the configured run-record folder, starts the command as a
 background process, and reads its status and recent log over SSH. The job continues if the browser or Delta Loop is
 closed. Large artifacts remain in the remote output folder shown on the Compute page; Delta Loop does not copy them
@@ -111,9 +121,9 @@ Use **Reset setup** on the Compute page, or `delta compute reset`, to clear the 
 This does not delete run history, output, policy rules, or research files. A new local or remote choice is required
 before another run can start.
 
-The remote project and its Python environment should already exist. Codex
-runs one bounded, read-only `delta compute inspect` first. That check reports objective facts such as the project and
-Git state, environment candidates, visible GPUs, scheduler, storage, and an existing `INFRA.md`. Codex then asks the
+The remote project and its Python environment should already exist. Codex runs one bounded, read-only
+`delta project inspect-remote` and one `delta compute inspect`. Those checks report objective facts such as the
+project documentation and Git state, environment candidates, visible GPUs, scheduler, storage, and an existing `INFRA.md`. Codex then asks the
 researcher about choices the server cannot reveal: the approved environment, storage policy, GPU and concurrency
 limits, login-node restrictions, and lab conventions. It saves compute settings and policy rules only after explicit
 confirmation, then proves that the exact environment setup resolves Python with `delta compute check`.

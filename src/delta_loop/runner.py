@@ -33,6 +33,8 @@ class AttemptRunner:
         workspace = self.store.get(workspace_id)
         if not workspace:
             raise RunFailure("Project not found.")
+        if workspace.setup_status != "ready":
+            raise RunFailure("Finish setting up this project with Codex before starting work.")
         package = next((item for item in workspace.packages if item.id == package_id), None)
         if not package:
             raise RunFailure("Plan not found.")

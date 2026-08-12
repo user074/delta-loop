@@ -12,6 +12,9 @@ class ImportFailure(ValueError):
     """Raised when a directory is not an importable Delta workspace."""
 
 
+UNSET_GOAL = "Research question not set up yet"
+
+
 def _slug(value: str, fallback: str) -> str:
     result = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return result[:64] or fallback
@@ -109,7 +112,36 @@ def import_workspace(root_value: str | Path) -> ProjectSnapshot:
 
     state_path = root / "STATE.md"
     if not state_path.is_file():
-        raise ImportFailure(f"No STATE.md found in {root}")
+        source_files = [
+            name
+            for name in ("README.md", "AGENTS.md", "CLAUDE.md", "INFRA.md", "SYNTHESIS.md")
+            if (root / name).is_file()
+        ]
+        name = root.name
+        question_id = f"question-{_slug(name, 'project')}"
+        return ProjectSnapshot(
+            id=_slug(str(root), "workspace"),
+            root=str(root),
+            name=name,
+            goal=UNSET_GOAL,
+            status="setup",
+            source_files=source_files,
+            nodes=[
+                ResearchNode(
+                    id=question_id,
+                    kind="question",
+                    title=UNSET_GOAL,
+                    summary="Codex will help set this up from the existing project.",
+                    status="primary",
+                    promise="high",
+                    evidence_strength="none",
+                )
+            ],
+            rules_versions=[initial_rules_version()],
+            active_rules_version_id="rules-v1",
+            harness=inspect_harness(root),
+            setup_status="needs-setup",
+        )
 
     markdown = state_path.read_text(encoding="utf-8")
     meta = _meta(markdown)

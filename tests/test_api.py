@@ -136,16 +136,138 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         assert preserved_approach["next_work_kind"] == "literature-review"
 
 
-def test_invalid_workspace_returns_actionable_error(tmp_path: Path) -> None:
-    project = tmp_path / "empty"
+def test_project_without_state_can_be_set_up_with_codex_flow(tmp_path: Path) -> None:
+    project = tmp_path / "existing-project"
     project.mkdir()
+    (project / "README.md").write_text("# Existing project\n", encoding="utf-8")
     app = create_app(tmp_path / "loop-data.json")
 
     with TestClient(app) as client:
         response = client.post("/api/workspaces/import", json={"path": str(project)})
+        assert response.status_code == 200
+        workspace = response.json()
+        workspace_id = workspace["id"]
+        assert workspace["setup_status"] == "needs-setup"
+        assert not (project / "STATE.md").exists()
+        assert (project / ".delta-loop" / "LOOP.md").is_file()
 
-    assert response.status_code == 422
-    assert "No STATE.md" in response.json()["detail"]
+        too_early = client.post(
+            f"/api/workspaces/{workspace_id}/setup/complete",
+            json={"summary": "Not ready yet"},
+        )
+        assert too_early.status_code == 422
+        assert "main research question" in too_early.json()["detail"]
+
+        client.patch(
+            f"/api/workspaces/{workspace_id}",
+            json={
+                "goal": "Determine why the existing model fails on long inputs",
+                "reason": "Agreed during initial setup",
+            },
+        )
+        with_idea = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "idea",
+                "text": "The positional representation is the bottleneck",
+                "summary": "Long inputs may exceed the learned representation range.",
+            },
+        ).json()
+        idea = next(
+            node for node in with_idea["nodes"]
+            if node["title"] == "The positional representation is the bottleneck"
+        )
+        with_test = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "way-to-test",
+                "text": "Compare short and long matched inputs",
+                "summary": "Hold content constant while changing only length.",
+                "parent_id": idea["id"],
+            },
+        ).json()
+        test_node = next(
+            node for node in with_test["nodes"]
+            if node["title"] == "Compare short and long matched inputs"
+        )
+        blocked_plan = client.post(
+            f"/api/workspaces/{workspace_id}/plans",
+            json={
+                "approach_id": test_node["id"],
+                "title": "Must wait for setup",
+            },
+        )
+        assert blocked_plan.status_code == 409
+        assert "Finish setting up" in blocked_plan.json()["detail"]
+        completed = client.post(
+            f"/api/workspaces/{workspace_id}/setup/complete",
+            json={
+                "summary": "Study length-related model failures using the existing evaluation code.",
+                "reference_repos": ["https://github.com/example/reference"],
+                "constraints": ["Do not replace the existing evaluation dataset"],
+            },
+        )
+        assert completed.status_code == 200
+        snapshot = completed.json()
+        assert snapshot["setup_status"] == "ready"
+        assert snapshot["status"] == "active"
+        assert snapshot["reference_repos"] == ["https://github.com/example/reference"]
+        assert snapshot["setup_constraints"] == ["Do not replace the existing evaluation dataset"]
+        state = (project / "STATE.md").read_text(encoding="utf-8")
+        assert "Determine why the existing model fails on long inputs" in state
+        assert "The positional representation is the bottleneck" in state
+        assert "Compare short and long matched inputs" in state
+        assert "https://github.com/example/reference" in state
+
+        reimported = client.post(
+            "/api/workspaces/import", json={"path": str(project)}
+        ).json()
+        assert reimported["setup_status"] == "ready"
+        assert reimported["setup_summary"] == snapshot["setup_summary"]
+        assert [node["id"] for node in reimported["nodes"]] == [
+            node["id"] for node in snapshot["nodes"]
+        ]
+
+
+def test_remote_project_starts_with_local_notes_and_no_generated_results(tmp_path: Path) -> None:
+    data_path = tmp_path / "data" / "workspaces.json"
+    app = create_app(data_path)
+
+    with TestClient(app) as client:
+        response = client.post("/api/workspaces/remote")
+        assert response.status_code == 200
+        workspace = response.json()
+
+        root = Path(workspace["root"])
+        assert workspace["project_source"] == "remote"
+        assert workspace["setup_status"] == "needs-setup"
+        assert workspace["goal"] == "Research question not set up yet"
+        assert workspace["claims"] == []
+        assert workspace["runs"] == []
+        assert workspace["packages"] == []
+        assert root.parent == data_path.parent / "projects"
+        assert not (root / "STATE.md").exists()
+        assert (root / ".delta-loop" / "LOOP.md").is_file()
+        assert (root / ".delta-loop" / "POLICY.md").is_file()
+
+        client.patch(
+            f"/api/workspaces/{workspace['id']}",
+            json={
+                "goal": "Why does the remote model fail on longer inputs?",
+                "reason": "Agreed during setup",
+            },
+        )
+        client.post(
+            f"/api/workspaces/{workspace['id']}/notes",
+            json={"kind": "idea", "text": "The input representation is the limit"},
+        )
+        unfinished = client.post(
+            f"/api/workspaces/{workspace['id']}/setup/complete",
+            json={"summary": "Study the existing model on the remote server."},
+        )
+        assert unfinished.status_code == 422
+        assert "Connect and check the remote project" in unfinished.json()["detail"]
+        assert not (root / "STATE.md").exists()
 
 
 def test_new_idea_can_have_its_own_way_to_test(tmp_path: Path) -> None:

@@ -32,6 +32,10 @@ export function importWorkspace(path: string): Promise<Workspace> {
   });
 }
 
+export function createRemoteWorkspace(): Promise<Workspace> {
+  return request("/api/workspaces/remote", { method: "POST" });
+}
+
 export function updateQuestion(
   workspaceId: string,
   goal: string,

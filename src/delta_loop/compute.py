@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import platform
 import re
@@ -8,7 +9,12 @@ import socket
 import subprocess
 from pathlib import Path
 
-from .models import ComputeCheckResult, ComputeConfig, ComputeInspection
+from .models import (
+    ComputeCheckResult,
+    ComputeConfig,
+    ComputeInspection,
+    RemoteProjectInspection,
+)
 
 
 class ComputeFailure(ValueError):
@@ -318,6 +324,82 @@ fi
         git_remote=one("git_remote"),
         git_status=one("git_status"),
         notes=notes,
+    )
+
+
+def inspect_remote_project(host: str, project_path: str) -> RemoteProjectInspection:
+    """Read a small, explicit set of files needed to understand a remote project."""
+    transient = ComputeConfig(
+        kind="ssh",
+        name=host,
+        ssh_host=host,
+        project_path=project_path,
+    )
+    validate_compute(transient)
+    script = r'''
+project=$1
+case "$project" in '~/'*) project="$HOME/${project#'~/'}" ;; esac
+emit() { printf '%s\t%s\n' "$1" "$2"; }
+emit project_path "$project"
+if [ ! -d "$project" ]; then
+  emit project_exists 0
+  exit 0
+fi
+emit project_exists 1
+find "$project" -maxdepth 2 -type f \
+  ! -path '*/.git/*' ! -path '*/.venv/*' ! -path '*/venv/*' \
+  ! -path '*/node_modules/*' ! -path '*/.cache/*' ! -path '*/__pycache__/*' \
+  ! -name '.env' ! -name '*.key' ! -name '*.pem' \
+  -print 2>/dev/null | sed "s#^$project/##" | head -80 | while IFS= read -r file; do
+    emit top_file "$file"
+  done
+for file in README.md AGENTS.md CLAUDE.md INFRA.md pyproject.toml package.json requirements.txt environment.yml environment.yaml Makefile; do
+  [ -f "$project/$file" ] || continue
+  content=$(head -c 4000 "$project/$file" 2>/dev/null | base64 | tr -d '\n' | cut -c1-5336)
+  printf 'document\t%s\t%s\n' "$file" "$content"
+done
+if git -C "$project" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  emit git_branch "$(git -C "$project" branch --show-current 2>/dev/null || true)"
+  emit git_remote "$(git -C "$project" remote get-url origin 2>/dev/null || true)"
+  git -C "$project" status --short 2>/dev/null | head -60 | while IFS= read -r line; do emit git_status "$line"; done
+  git -C "$project" log -5 --pretty=format:'%h %s' 2>/dev/null | while IFS= read -r line; do emit recent_commit "$line"; done
+fi
+'''
+    completed = run_ssh(
+        host,
+        _remote_command(script, project_path),
+        timeout=20,
+    )
+    values: dict[str, list[str]] = {}
+    documentation: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        key, separator, rest = line.partition("\t")
+        if not separator:
+            continue
+        if key == "document":
+            name, document_separator, encoded = rest.partition("\t")
+            if not document_separator:
+                continue
+            try:
+                documentation[name] = base64.b64decode(encoded).decode("utf-8", errors="replace")
+            except ValueError:
+                documentation[name] = "[The file could not be decoded.]"
+            continue
+        values.setdefault(key, []).append(rest)
+
+    def one(key: str, default: str = "") -> str:
+        return values.get(key, [default])[0]
+
+    return RemoteProjectInspection(
+        host=host,
+        project_path=one("project_path", project_path),
+        project_exists=one("project_exists") == "1",
+        top_level_files=values.get("top_file", []),
+        documentation=documentation,
+        git_branch=one("git_branch"),
+        git_remote=one("git_remote"),
+        git_status=values.get("git_status", []),
+        recent_commits=values.get("recent_commit", []),
     )
 
 

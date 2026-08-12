@@ -58,6 +58,12 @@ class WorkspaceStore:
                 workspace.question_history = previous.question_history
                 workspace.compute = previous.compute
                 workspace.compute_inspection = previous.compute_inspection
+                workspace.setup_status = previous.setup_status
+                workspace.setup_summary = previous.setup_summary
+                workspace.reference_repos = previous.reference_repos
+                workspace.setup_constraints = previous.setup_constraints
+                if previous.setup_summary:
+                    workspace.nodes = previous.nodes
                 if previous.question_history:
                     workspace.goal = previous.goal
                     question = next((node for node in workspace.nodes if node.kind == "question"), None)
