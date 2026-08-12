@@ -81,6 +81,8 @@ you can review how the research direction evolved.
 - Run an approved local command and keep its hidden detailed plan, output, and review together
 - Choose whether research commands run locally or on one remote server through the user's existing SSH setup
 - Check the remote project, Python, Git, and GPUs without starting research work
+- See the actual research repository separately from Delta Loop's local control folder, and check its branch, remote, upstream, and changed files without fetching
+- Let Codex manage reviewed commits and optional pushes only under explicit, checked Git policy rules
 - Keep remote jobs running when the browser closes, reconnect to their status and recent logs, and show exactly where large output remains
 - Limit how many independent approved plans may run at the same time
 - Change the agent rules safely through checked, reversible versions
@@ -213,6 +215,19 @@ confirmation, then proves that the exact environment setup resolves Python with 
 Manual fields remain available as a collapsed fallback for researchers who already know the exact configuration.
 Inspection and connection checks do not install software, clone code, move data, change Git, or start research work.
 
+The **Git & GitHub** section on Compute points at the actual research repository: the local project folder for local
+work, or `SSH_HOST:REMOTE_PROJECT_PATH` for remote work. It separately shows Delta Loop's local control folder so the
+agent does not accidentally commit the local notes as if they were remote research code. **Check repository** reads
+the branch, configured remote, upstream, changed paths, last commit, and cached ahead/behind counts. It does not
+fetch, pull, switch branches, stage, commit, or push.
+
+Use **Chat with Codex** in that section to decide what reviewed files belong in Git, when Codex may commit, whether
+it should use the current branch or a work branch, and when it may push. The approved behavior is saved in the same
+versioned policy that controls the research loop. Commit permission is separate from push permission; when no Git
+rule is enabled, the agent must not commit or push. Large data, checkpoints, caches, secrets, and raw run output are
+excluded unless the researcher explicitly chooses otherwise. The equivalent read-only commands are `delta git
+check` and `delta git show`.
+
 `delta harness update` updates the optional source checkout for comparison. It refuses to overwrite tracked local
 changes or update a checkout that points at a different Git remote. It does not silently replace the active loop;
 that loop remains a checked, reversible Delta Loop policy version.
@@ -220,6 +235,58 @@ that loop remains a checked, reversible Delta Loop policy version.
 The discussion buttons start Codex by default. Its command sandbox allows local connections so it can reach
 Delta Loop at `127.0.0.1`, while other internet destinations remain blocked. Set `DELTA_LOOP_AGENT_COMMAND`
 before starting Delta Loop to use another interactive agent command.
+
+## Alternative: run Delta Loop itself on a remote server
+
+The setup above keeps Delta Loop on your computer and sends only research commands to the server. You can instead
+install and run the entire Delta Loop app on a remote server, then open it safely from your computer through SSH.
+This is useful when the repository, environment, and agent should all remain on the server.
+
+First, connect to the server and install Delta Loop without trying to open a browser there:
+
+```bash
+ssh YOUR_SERVER
+git clone --depth 1 https://github.com/user074/delta-loop.git ~/delta-loop
+~/delta-loop/install.sh --no-launch
+```
+
+On the server, start Delta Loop on the SSH-only address:
+
+```bash
+~/.local/bin/delta-loop --host 127.0.0.1 --port 4317 --no-open
+```
+
+Keep that terminal open. In a second terminal on your own computer, create the encrypted SSH tunnel:
+
+```bash
+ssh -N -L 4317:127.0.0.1:4317 YOUR_SERVER
+```
+
+Then open [http://127.0.0.1:4317](http://127.0.0.1:4317) in the browser on your computer. Although the address
+looks local, the page and Delta Loop process are running on the remote server through the SSH tunnel.
+
+After installation, you can start Delta Loop and the tunnel together with one command from your computer:
+
+```bash
+ssh -t -L 4317:127.0.0.1:4317 YOUR_SERVER \
+  '~/.local/bin/delta-loop --host 127.0.0.1 --port 4317 --no-open'
+```
+
+In this arrangement, select **This computer** on Delta Loop's Compute page. Here, “this computer” means the remote
+server where Delta Loop is running. Project paths shown in the UI must also be paths on that server. Delta Loop's
+saved state is stored in `~/.delta-loop/` on the server.
+
+Keep `--host 127.0.0.1`. Do not bind Delta Loop to `0.0.0.0` or open port 4317 in the server firewall; the SSH
+tunnel provides access without exposing the web page to the network. If port 4317 is already used on your computer,
+leave the remote app on 4317 and use a different local port:
+
+```bash
+ssh -N -L 4319:127.0.0.1:4317 YOUR_SERVER
+```
+
+Then open [http://127.0.0.1:4319](http://127.0.0.1:4319). On a shared cluster, check the site's rules before running
+a persistent web process on a login node. If that is not allowed, keep Delta Loop on your computer and use the
+earlier **Remote server** Compute setup instead.
 
 ## Validate
 

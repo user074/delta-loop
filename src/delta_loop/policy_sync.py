@@ -89,6 +89,7 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         "7. If a matching rule or `Ask before` field requires human input, stop before planning or starting that action.",
         "8. A rule for one idea may narrow the general policy, but it cannot override a required rule.",
         "9. Start approved work through Delta Loop so it uses the saved compute location; do not silently move work to another machine.",
+        "10. Git rules apply to the research repository at the compute project path. For a remote project, the local Delta Loop folder stores control notes and is not the repository to commit.",
         "",
         "## Research map",
         "",
@@ -213,6 +214,7 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
     loop_stages = [rule for rule in loop_rules if rule.loop_level == "stage"]
     loop_steps = [rule for rule in loop_rules if rule.loop_level == "step"]
     other_rules = [rule for rule in enabled if rule.category != "loop"]
+    git_rules = [rule for rule in other_rules if rule.category == "git"]
     shared_rules = [rule for rule in other_rules if not rule.loop_step_ids]
     version_number = active.version if active else 0
     compute = workspace.compute
@@ -249,7 +251,8 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
         "1. Read this file and the current idea policy recorded above.",
         "2. Run `delta context` in a Delta Loop terminal to see the selected idea and current human choices.",
         "3. Run `delta compute show` before planning execution. If no location is configured, stop and ask the researcher to set one up.",
-        "4. If either generated file cannot be read, stop and report the blocker instead of guessing.",
+        "4. If a Git rule is enabled, run `delta git check` and apply Git only to the actual research repository shown there, not Delta Loop's local control folder.",
+        "5. If either generated file cannot be read, stop and report the blocker instead of guessing.",
         "",
         "## Research cycle",
         "",
@@ -346,7 +349,12 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
             "",
             "Required safety rule → matching idea policy → other enabled rules → the active research-loop step.",
             "",
-            "This policy does not by itself authorize pushing, publishing, deleting data, spending money, or another outside side effect.",
+            (
+                "Pushing is allowed only at the exact point described by an enabled Git rule; otherwise stop and ask. "
+                "No policy rule by itself authorizes publishing elsewhere, deleting data, spending money, or another outside side effect."
+                if git_rules
+                else "No Git rule is enabled. Do not commit or push. Publishing, deleting data, spending money, or another outside side effect also requires explicit approval."
+            ),
             "",
         ]
     )

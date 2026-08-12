@@ -54,6 +54,7 @@ HarnessStatus = Literal[
 TerminalKind = Literal["shell", "discussion", "research"]
 ComputeKind = Literal["local", "ssh"]
 ComputeStatus = Literal["unchecked", "ready", "unreachable", "needs-setup"]
+GitRepositoryState = Literal["unchecked", "ready", "not-repository", "unreachable"]
 ProjectSetupStatus = Literal["needs-setup", "ready"]
 ProjectSource = Literal["local", "remote"]
 
@@ -361,6 +362,26 @@ class ComputeInspection(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class GitRepositoryStatus(BaseModel):
+    state: GitRepositoryState = "unchecked"
+    message: str = "The research repository has not been checked yet."
+    checked_at: str = ""
+    location: str = ""
+    project_path: str = ""
+    repository_found: bool = False
+    repository_root: str = ""
+    branch: str = ""
+    remote_name: str = "origin"
+    remote_url: str = ""
+    github_url: str = ""
+    upstream: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    changes_truncated: bool = False
+    ahead: int = 0
+    behind: int = 0
+    last_commit: str = ""
+
+
 class RemoteProjectInspectRequest(BaseModel):
     ssh_host: str
     project_path: str
@@ -430,6 +451,7 @@ class ProjectSnapshot(BaseModel):
     node_history: list[ResearchNodeRevision] = Field(default_factory=list)
     compute: ComputeConfig = Field(default_factory=ComputeConfig)
     compute_inspection: ComputeInspection | None = None
+    git_repository: GitRepositoryStatus = Field(default_factory=GitRepositoryStatus)
     setup_status: ProjectSetupStatus = "ready"
     setup_summary: str = ""
     reference_repos: list[str] = Field(default_factory=list)

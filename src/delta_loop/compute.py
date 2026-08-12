@@ -13,6 +13,7 @@ from .models import (
     ComputeCheckResult,
     ComputeConfig,
     ComputeInspection,
+    GitRepositoryStatus,
     RemoteProjectInspection,
     RemoteProjectReading,
 )
@@ -652,6 +653,235 @@ def inspect_local_compute(project_path: str, run_path: str) -> ComputeInspection
         git_status="clean" if not git_lines else f"{len(git_lines)} changed paths",
         notes=notes,
     )
+
+
+def inspect_git_repository(
+    config: ComputeConfig,
+    local_root: str,
+    remote_name: str = "origin",
+) -> GitRepositoryStatus:
+    """Read Git state from the actual research repository without fetching or changing it."""
+    validate_compute(config)
+    if config.kind == "local":
+        return _inspect_local_git_repository(local_root, remote_name)
+    return _inspect_remote_git_repository(config, remote_name)
+
+
+def _inspect_local_git_repository(
+    project_path: str,
+    remote_name: str,
+) -> GitRepositoryStatus:
+    project = Path(project_path).expanduser().resolve()
+    location = str(project)
+    if not project.is_dir():
+        return GitRepositoryStatus(
+            state="unreachable",
+            message="The saved research project folder does not exist.",
+            checked_at=_now_iso(),
+            location=location,
+            project_path=location,
+        )
+    root = _local_output(["git", "-C", str(project), "rev-parse", "--show-toplevel"])
+    if not root:
+        return GitRepositoryStatus(
+            state="not-repository",
+            message="The research project folder is not a Git repository.",
+            checked_at=_now_iso(),
+            location=location,
+            project_path=location,
+        )
+    branch = _local_output(["git", "-C", str(project), "branch", "--show-current"])
+    if not branch:
+        commit = _local_output(["git", "-C", str(project), "rev-parse", "--short", "HEAD"])
+        branch = f"detached at {commit}" if commit else "detached"
+    remote_url = _local_output(
+        ["git", "-C", str(project), "remote", "get-url", remote_name]
+    )
+    upstream = _local_output(
+        ["git", "-C", str(project), "rev-parse", "--abbrev-ref", "@{u}"]
+    )
+    ahead, behind = _ahead_behind_local(project, upstream)
+    changed = _local_output(
+        ["git", "-C", str(project), "status", "--short", "--untracked-files=normal"]
+    ).splitlines()
+    return GitRepositoryStatus(
+        state="ready",
+        message=(
+            "The research repository is connected to GitHub."
+            if _github_url(remote_url)
+            else "The research repository is ready."
+        ),
+        checked_at=_now_iso(),
+        location=location,
+        project_path=location,
+        repository_found=True,
+        repository_root=root,
+        branch=branch,
+        remote_name=remote_name,
+        remote_url=remote_url,
+        github_url=_github_url(remote_url),
+        upstream=upstream,
+        changed_files=changed[:80],
+        changes_truncated=len(changed) > 80,
+        ahead=ahead,
+        behind=behind,
+        last_commit=_local_output(
+            ["git", "-C", str(project), "log", "-1", "--pretty=format:%h %s"]
+        ),
+    )
+
+
+def _inspect_remote_git_repository(
+    config: ComputeConfig,
+    remote_name: str,
+) -> GitRepositoryStatus:
+    script = r'''
+project=$1
+remote_name=$2
+case "$project" in '~/'*) project="$HOME/${project#'~/'}" ;; esac
+emit() { printf '%s\t%s\n' "$1" "$2"; }
+encoded() { printf '%s' "$2" | base64 | tr -d '\n' | sed "s/^/$1\t/"; printf '\n'; }
+emit project_path "$project"
+if [ ! -d "$project" ]; then emit state missing; exit 0; fi
+if ! git -C "$project" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  emit state not_repository
+  exit 0
+fi
+emit state ready
+emit repository_root "$(git -C "$project" rev-parse --show-toplevel 2>/dev/null || true)"
+branch=$(git -C "$project" branch --show-current 2>/dev/null || true)
+if [ -z "$branch" ]; then
+  head=$(git -C "$project" rev-parse --short HEAD 2>/dev/null || true)
+  [ -n "$head" ] && branch="detached at $head" || branch=detached
+fi
+emit branch "$branch"
+emit remote_url "$(git -C "$project" remote get-url "$remote_name" 2>/dev/null || true)"
+upstream=$(git -C "$project" rev-parse --abbrev-ref '@{u}' 2>/dev/null || true)
+emit upstream "$upstream"
+if [ -n "$upstream" ]; then
+  counts=$(git -C "$project" rev-list --left-right --count "HEAD...$upstream" 2>/dev/null || true)
+  emit ahead "$(printf '%s' "$counts" | awk '{print $1}')"
+  emit behind "$(printf '%s' "$counts" | awk '{print $2}')"
+fi
+count=0
+git -C "$project" status --short --untracked-files=normal 2>/dev/null | while IFS= read -r line; do
+  count=$((count + 1))
+  [ "$count" -le 80 ] && encoded changed "$line"
+done
+changes=$(git -C "$project" status --short --untracked-files=normal 2>/dev/null | wc -l | tr -d ' ')
+[ "${changes:-0}" -gt 80 ] 2>/dev/null && emit changes_truncated 1 || emit changes_truncated 0
+encoded last_commit "$(git -C "$project" log -1 --pretty=format:'%h %s' 2>/dev/null || true)"
+'''
+    location = f"{config.ssh_host}:{config.project_path}"
+    try:
+        completed = run_ssh(
+            config.ssh_host,
+            _remote_command(script, config.project_path, remote_name),
+            timeout=18,
+        )
+    except ComputeFailure as exc:
+        return GitRepositoryStatus(
+            state="unreachable",
+            message=str(exc),
+            checked_at=_now_iso(),
+            location=location,
+            project_path=config.project_path,
+            remote_name=remote_name,
+        )
+    values: dict[str, list[str]] = {}
+    for line in completed.stdout.splitlines():
+        key, separator, value = line.partition("\t")
+        if separator:
+            values.setdefault(key, []).append(value)
+
+    def one(key: str, default: str = "") -> str:
+        return values.get(key, [default])[0]
+
+    resolved_path = one("project_path", config.project_path)
+    state = one("state")
+    if state == "missing":
+        return GitRepositoryStatus(
+            state="unreachable",
+            message="The saved remote research project folder does not exist.",
+            checked_at=_now_iso(),
+            location=location,
+            project_path=resolved_path,
+            remote_name=remote_name,
+        )
+    if state != "ready":
+        return GitRepositoryStatus(
+            state="not-repository",
+            message="The remote research project folder is not a Git repository.",
+            checked_at=_now_iso(),
+            location=location,
+            project_path=resolved_path,
+            remote_name=remote_name,
+        )
+    changed = [_decode_line(item) for item in values.get("changed", [])]
+    remote_url = one("remote_url")
+    return GitRepositoryStatus(
+        state="ready",
+        message=(
+            "The remote research repository is connected to GitHub."
+            if _github_url(remote_url)
+            else "The remote research repository is ready."
+        ),
+        checked_at=_now_iso(),
+        location=location,
+        project_path=resolved_path,
+        repository_found=True,
+        repository_root=one("repository_root"),
+        branch=one("branch"),
+        remote_name=remote_name,
+        remote_url=remote_url,
+        github_url=_github_url(remote_url),
+        upstream=one("upstream"),
+        changed_files=changed,
+        changes_truncated=one("changes_truncated") == "1",
+        ahead=int(one("ahead", "0") or 0),
+        behind=int(one("behind", "0") or 0),
+        last_commit=_decode_line(one("last_commit")),
+    )
+
+
+def _ahead_behind_local(project: Path, upstream: str) -> tuple[int, int]:
+    if not upstream:
+        return 0, 0
+    raw = _local_output(
+        ["git", "-C", str(project), "rev-list", "--left-right", "--count", f"HEAD...{upstream}"]
+    )
+    values = raw.split()
+    if len(values) != 2 or not all(value.isdigit() for value in values):
+        return 0, 0
+    return int(values[0]), int(values[1])
+
+
+def _decode_line(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        return base64.b64decode(value).decode("utf-8", errors="replace")
+    except ValueError:
+        return "[Could not decode Git output]"
+
+
+def _github_url(remote_url: str) -> str:
+    value = remote_url.strip()
+    ssh_match = re.fullmatch(r"git@github\.com:([^/]+)/(.+?)(?:\.git)?", value)
+    if ssh_match:
+        owner, repository = ssh_match.groups()
+        return f"https://github.com/{owner}/{repository.removesuffix('.git')}"
+    https_match = re.fullmatch(r"https?://github\.com/([^/]+)/(.+?)(?:\.git)?/?", value)
+    if https_match:
+        owner, repository = https_match.groups()
+        return f"https://github.com/{owner}/{repository.removesuffix('.git')}"
+    return ""
+
+
+def _now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat()
 
 
 def remote_shell_command(script: str, *arguments: str) -> str:

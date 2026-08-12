@@ -27,7 +27,7 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
             for version in imported["rules_versions"]
             if version["id"] == imported["active_rules_version_id"]
         )["rules"]
-        assert imported["policy_schema_version"] == 4
+        assert imported["policy_schema_version"] == 5
         assert [
             rule["id"] for rule in active_rules
             if rule["category"] == "loop" and rule["loop_level"] == "stage"
@@ -636,7 +636,7 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
         for version in upgraded["rules_versions"]
         if version["id"] == upgraded["active_rules_version_id"]
     )
-    assert upgraded["policy_schema_version"] == 4
+    assert upgraded["policy_schema_version"] == 5
     assert active["version"] == 3
     assert any(rule["id"] == "lab-specific-rule" for rule in active["rules"])
     assert any(rule["category"] == "loop" for rule in active["rules"])

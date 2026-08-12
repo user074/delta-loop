@@ -151,6 +151,22 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
             default=_default_api_url(),
         )
 
+    git_parser = subparsers.add_parser(
+        "git", help="Check the research repository and its agent policy"
+    )
+    git_subparsers = git_parser.add_subparsers(dest="git_command", required=True)
+    git_show = git_subparsers.add_parser(
+        "show", help="Show the last repository check and active Git rules"
+    )
+    git_show.add_argument("--json", action="store_true", dest="as_json")
+    git_check = git_subparsers.add_parser(
+        "check", help="Read the actual local or remote repository without changing it"
+    )
+    git_check.add_argument("--json", action="store_true", dest="as_json")
+    for item in (git_show, git_check):
+        item.add_argument("--workspace")
+        item.add_argument("--url", default=_default_api_url())
+
     work_parser = subparsers.add_parser(
         "work", help="Start and follow a bounded research run through Delta Loop"
     )
@@ -382,6 +398,13 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
             )
         else:
             _reset_compute(args.url, args.workspace)
+        return
+
+    if args.command == "git":
+        if args.git_command == "check":
+            _check_git(args.url, args.workspace, args.as_json)
+        else:
+            _show_git(args.url, args.workspace, args.as_json)
         return
 
     if args.command == "work":
@@ -781,6 +804,75 @@ def _show_compute(base_url: str, workspace_id: str | None, as_json: bool) -> Non
     print(f"At most {compute.get('max_parallel', 1)} run(s) at once")
     print(f"Connection: {compute.get('status', 'unchecked')}")
     print(compute.get("status_message") or "Not checked yet.")
+
+
+def _git_view(workspace: dict) -> dict:
+    active_id = workspace.get("active_rules_version_id")
+    active = next(
+        (
+            version
+            for version in workspace.get("rules_versions", [])
+            if version.get("id") == active_id
+        ),
+        {},
+    )
+    return {
+        "repository": workspace.get("git_repository", {}),
+        "rules": [
+            rule for rule in active.get("rules", [])
+            if rule.get("category") == "git"
+        ],
+        "delta_loop_control_folder": workspace.get("root", ""),
+    }
+
+
+def _print_git(view: dict) -> None:
+    repository = view["repository"]
+    print(f"Research repository: {repository.get('location') or 'not checked'}")
+    print(repository.get("message") or "The repository has not been checked yet.")
+    if repository.get("repository_found"):
+        print(f"Branch: {repository.get('branch') or 'unknown'}")
+        print(f"Remote: {repository.get('remote_url') or 'none configured'}")
+        print(f"Upstream: {repository.get('upstream') or 'none configured'}")
+        print(
+            f"Local branch position: {repository.get('ahead', 0)} ahead, "
+            f"{repository.get('behind', 0)} behind (using existing local refs; no fetch was run)"
+        )
+        print(f"Changed paths: {len(repository.get('changed_files', []))}")
+        if repository.get("last_commit"):
+            print(f"Last commit: {repository['last_commit']}")
+    enabled = [rule for rule in view["rules"] if rule.get("enabled")]
+    if enabled:
+        print("Active Git policy:")
+        for rule in enabled:
+            print(f"- {rule['title']}: {rule['instruction']}")
+    else:
+        print("Active Git policy: off. The agent must not commit or push.")
+    print(f"Delta Loop control folder: {view['delta_loop_control_folder']}")
+
+
+def _show_git(base_url: str, workspace_id: str | None, as_json: bool) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    view = _git_view(_workspace(base_url, workspace_id))
+    if as_json:
+        print(json.dumps(view, indent=2))
+        return
+    _print_git(view)
+
+
+def _check_git(base_url: str, workspace_id: str | None, as_json: bool) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    workspace = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/git/check",
+        method="POST",
+    )
+    view = _git_view(workspace)
+    if as_json:
+        print(json.dumps(view, indent=2))
+        return
+    _print_git(view)
 
 
 def _finish_project_setup(

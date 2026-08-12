@@ -15,6 +15,7 @@ from .compute import (
     ComputeFailure,
     check_compute,
     inspect_local_compute,
+    inspect_git_repository,
     inspect_remote_compute,
     inspect_remote_project,
     read_remote_project_files,
@@ -27,6 +28,7 @@ from .models import (
     ComputeConfigRequest,
     ComputeInspectRequest,
     ComputeInspection,
+    GitRepositoryStatus,
     HarnessInfo,
     ImportRequest,
     NodePatch,
@@ -266,6 +268,7 @@ def create_app(
             ):
                 workspace.compute_inspection = None
         workspace.compute = config
+        workspace.git_repository = GitRepositoryStatus()
         workspace.last_updated = now_iso()
         return save_with_policy(workspace)
 
@@ -277,6 +280,7 @@ def create_app(
         workspace = workspace_or_404(workspace_id)
         workspace.compute = ComputeConfig()
         workspace.compute_inspection = None
+        workspace.git_repository = GitRepositoryStatus()
         workspace.last_updated = now_iso()
         return save_with_policy(workspace)
 
@@ -336,6 +340,29 @@ def create_app(
         workspace.compute.detected_python = result.python
         workspace.compute.detected_git = result.git
         workspace.compute.detected_gpus = result.gpus
+        workspace.last_updated = now_iso()
+        return save_with_policy(workspace)
+
+    @app.post(
+        "/api/workspaces/{workspace_id}/git/check",
+        response_model=ProjectSnapshot,
+    )
+    def check_workspace_git(workspace_id: str) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        if workspace.project_source == "remote" and (
+            not workspace.compute.configured or workspace.compute.kind != "ssh"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Set up the remote research project on the Compute page before checking Git.",
+            )
+        config = workspace.compute
+        if not config.configured:
+            config = ComputeConfig(configured=True, kind="local", name="This computer")
+        try:
+            workspace.git_repository = inspect_git_repository(config, workspace.root)
+        except ComputeFailure as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         workspace.last_updated = now_iso()
         return save_with_policy(workspace)
 

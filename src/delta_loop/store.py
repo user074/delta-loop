@@ -66,6 +66,7 @@ class WorkspaceStore:
                 workspace.research_links = previous.research_links
                 workspace.compute = previous.compute
                 workspace.compute_inspection = previous.compute_inspection
+                workspace.git_repository = previous.git_repository
                 workspace.setup_status = previous.setup_status
                 workspace.setup_summary = previous.setup_summary
                 workspace.reference_repos = previous.reference_repos

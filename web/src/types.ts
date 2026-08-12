@@ -213,6 +213,26 @@ export interface ComputeInspection {
   notes: string[];
 }
 
+export interface GitRepositoryStatus {
+  state: "unchecked" | "ready" | "not-repository" | "unreachable";
+  message: string;
+  checked_at: string;
+  location: string;
+  project_path: string;
+  repository_found: boolean;
+  repository_root: string;
+  branch: string;
+  remote_name: string;
+  remote_url: string;
+  github_url: string;
+  upstream: string;
+  changed_files: string[];
+  changes_truncated: boolean;
+  ahead: number;
+  behind: number;
+  last_commit: string;
+}
+
 export interface ResultReview {
   id: string;
   attempt_id: string;
@@ -317,6 +337,7 @@ export interface Workspace {
   node_history: ResearchNodeRevision[];
   compute: ComputeConfig;
   compute_inspection: ComputeInspection | null;
+  git_repository: GitRepositoryStatus;
   setup_status: "needs-setup" | "ready";
   setup_summary: string;
   reference_repos: string[];

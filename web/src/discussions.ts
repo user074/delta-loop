@@ -277,3 +277,27 @@ export function computeDiscussion(
     ].join("\n\n"),
   };
 }
+
+export function gitDiscussion(workspace: Workspace): Omit<DiscussionRequest, "id"> {
+  const compute = workspace.compute;
+  const repository = workspace.project_source === "remote"
+    ? compute.configured && compute.kind === "ssh"
+      ? `${compute.ssh_host}:${compute.project_path}`
+      : "not set up yet; configure the remote project on Compute before making Git rules"
+    : workspace.root;
+  return {
+    nodeId: null,
+    topic: "how Codex should manage Git and GitHub",
+    prompt: [
+      ...opening("how Codex should manage Git and GitHub for this research project"),
+      `The actual research repository should be ${repository}.`,
+      `Delta Loop's local control folder is ${workspace.root}. For a remote project this contains notes and policy files; it is not the remote research repository and must not be mistaken for the place to commit research work.`,
+      "First run `delta git check`. This is read-only: it must not fetch, pull, switch branches, stage, commit, or push. Explain the current branch, remote, upstream, local changes, and cached ahead/behind counts in plain language. If the repository or GitHub remote is missing, explain what needs setup but do not create or change it yet.",
+      "Then ask one short round about the choices that control the agent: (1) when to commit—after each reviewed useful result, only at milestones, or never automatically; (2) whether to stay on the current branch or make a branch for an idea or experiment; (3) what result records belong in GitHub—normally code, configuration, small plots, and a compact reviewed report, while secrets, datasets, checkpoints, caches, and large raw outputs stay out; and (4) when pushing is allowed—ask every time, automatically only after a verified commit, or never.",
+      "Treat automatic pushing as an explicit permission. Do not infer it from permission to commit. Ask whether the agent may push, which remote and branch it may push, and whether a pull request is expected. Shared or protected branches need a clear rule.",
+      "Offer a concise recommended policy based on the repository state. The rule should say exactly when it applies, what to inspect, what may be staged, which checks must pass, how commits are named, which branch is used, and whether the agent must stop before pushing.",
+      "Do not change Git while configuring the policy. After the researcher explicitly approves the wording, save it with `delta rules update git-reviewed-work --on --when \"WHEN\" --scope \"ACTUAL REPOSITORY\" --instruction \"APPROVED RULE\"`. Use additional `delta rules add --category git` rules only when a separate rule is genuinely clearer.",
+      "Run `delta rules show` and `delta git show` after saving. Summarize what Codex may commit, what it may push, when it must ask, and which actual repository the rule controls.",
+    ].join("\n\n"),
+  };
+}

@@ -5,8 +5,12 @@ import {
   Clock3,
   Computer,
   Eye,
+  FileText,
+  GitBranch,
+  Github,
   HardDrive,
   LoaderCircle,
+  MessageCircle,
   Play,
   RefreshCw,
   RotateCcw,
@@ -15,8 +19,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { checkCompute, resetCompute, updateCompute } from "./api";
-import { computeDiscussion, type DiscussionRequest } from "./discussions";
+import { checkCompute, checkGit, resetCompute, updateCompute } from "./api";
+import { computeDiscussion, gitDiscussion, type DiscussionRequest } from "./discussions";
 import type { ComputeConfig, Workspace } from "./types";
 
 type EditableCompute = Pick<
@@ -66,6 +70,7 @@ export default function ComputePage({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [checkingGit, setCheckingGit] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -123,10 +128,33 @@ export default function ComputePage({
     }
   }
 
+  async function checkRepository() {
+    setCheckingGit(true);
+    onError("");
+    try {
+      const updated = await checkGit(workspace.id);
+      onWorkspace(updated);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : "Could not check the research repository.");
+    } finally {
+      setCheckingGit(false);
+    }
+  }
+
   const compute = workspace.compute;
   const inspection = workspace.compute_inspection;
   const recentRuns = [...workspace.attempts].reverse().slice(0, 6);
   const ready = compute.configured && compute.status === "ready";
+  const activeRules = workspace.rules_versions.find((version) => version.id === workspace.active_rules_version_id)?.rules ?? [];
+  const gitRules = activeRules.filter((rule) => rule.category === "git" && rule.enabled);
+  const git = workspace.git_repository;
+  const actualRepository = workspace.project_source === "remote"
+    ? compute.configured && compute.kind === "ssh"
+      ? `${compute.ssh_host}:${compute.project_path}`
+      : "Remote repository not set up"
+    : workspace.root;
+  const canCheckGit = workspace.project_source !== "remote"
+    || (compute.configured && compute.kind === "ssh");
   const hasSetupToReset = compute.configured || Boolean(inspection);
   const formHasSelection = dirty || compute.configured;
 
@@ -331,6 +359,89 @@ export default function ComputePage({
           </div>
         </aside>
       </div>
+
+      <section className="git-control">
+        <div className="git-control-head">
+          <div>
+            <div className="section-kicker"><Github size={14} /> Git &amp; GitHub</div>
+            <h2>Let Codex keep reviewed work in the repository</h2>
+            <p>Check the real research repository, then decide when Codex may commit, push, or must stop and ask you.</p>
+          </div>
+          <div className="git-control-actions">
+            <button onClick={checkRepository} disabled={!canCheckGit || checkingGit}>
+              {checkingGit ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+              {checkingGit ? "Checking…" : "Check repository"}
+            </button>
+            <button className="primary" onClick={() => onDiscuss(gitDiscussion(workspace))}>
+              <MessageCircle size={14} /> Chat with Codex
+            </button>
+          </div>
+        </div>
+
+        <div className="git-location-grid">
+          <article>
+            <GitBranch size={18} />
+            <div><small>Research repository</small><strong>{actualRepository}</strong><p>This is where research code and approved result reports should be committed.</p></div>
+          </article>
+          <article>
+            <FileText size={18} />
+            <div><small>Delta Loop control folder</small><strong>{workspace.root}</strong><p>{compute.configured && compute.kind === "ssh" ? "These are local notes and controls. This folder is not the remote Git repository." : "Delta Loop's local policy and research notes live inside this project."}</p></div>
+          </article>
+        </div>
+
+        <div className="git-control-grid">
+          <article className={`git-repository-card ${git.state}`}>
+            <div className="git-card-title">
+              <div>
+                <small>Last repository check</small>
+                <strong>{git.state === "ready" ? "Repository found" : git.state === "not-repository" ? "Not a Git repository" : git.state === "unreachable" ? "Could not reach repository" : "Not checked"}</strong>
+              </div>
+              <span>{git.changed_files.length ? `${git.changed_files.length}${git.changes_truncated ? "+" : ""} changed` : git.state === "ready" ? "Clean" : "—"}</span>
+            </div>
+            <p>{git.message}</p>
+            {git.repository_found && (
+              <dl>
+                <div><dt>Branch</dt><dd>{git.branch || "Unknown"}</dd></div>
+                <div><dt>GitHub remote</dt><dd>{git.remote_url || "No remote configured"}</dd></div>
+                <div><dt>Tracks</dt><dd>{git.upstream || "No upstream branch"}</dd></div>
+                <div><dt>Position</dt><dd>{git.upstream ? `${git.ahead} ahead · ${git.behind} behind` : "Cannot compare without an upstream"}</dd></div>
+                <div><dt>Last commit</dt><dd>{git.last_commit || "No commit found"}</dd></div>
+              </dl>
+            )}
+            {git.changed_files.length > 0 && (
+              <details>
+                <summary>Show changed files</summary>
+                <pre>{git.changed_files.slice(0, 12).join("\n")}{git.changed_files.length > 12 || git.changes_truncated ? "\n…" : ""}</pre>
+              </details>
+            )}
+            {git.checked_at && <small>Checked {new Date(git.checked_at).toLocaleString()} without fetching or changing Git.</small>}
+          </article>
+
+          <article className={`git-policy-card ${gitRules.length ? "active" : "off"}`}>
+            <div className="git-card-title">
+              <div><small>Codex Git policy</small><strong>{gitRules.length ? "Agent management is on" : "Agent management is off"}</strong></div>
+              <span>{gitRules.length ? "Active" : "Off"}</span>
+            </div>
+            {gitRules.length ? (
+              <div className="git-policy-list">
+                {gitRules.map((rule) => (
+                  <div key={rule.id}>
+                    <strong>{rule.title}</strong>
+                    <p>{rule.instruction}</p>
+                    <small>When: {rule.when}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>Codex may inspect Git, but it may not commit or push. Use Chat with Codex to choose the exact rules first.</p>
+            )}
+            <div className="git-safety-note">
+              <ShieldCheck size={15} />
+              <p>Permission to commit does not mean permission to push. Large data, checkpoints, caches, secrets, and raw run output stay out unless you explicitly decide otherwise.</p>
+            </div>
+          </article>
+        </div>
+      </section>
 
       <section className="compute-runs">
         <div>

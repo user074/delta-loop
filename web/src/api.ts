@@ -79,6 +79,12 @@ export function resetCompute(workspaceId: string): Promise<Workspace> {
   });
 }
 
+export function checkGit(workspaceId: string): Promise<Workspace> {
+  return request(`/api/workspaces/${workspaceId}/git/check`, {
+    method: "POST",
+  });
+}
+
 export function patchNode(
   workspaceId: string,
   nodeId: string,
