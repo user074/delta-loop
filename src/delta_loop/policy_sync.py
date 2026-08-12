@@ -90,8 +90,33 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         "8. A rule for one idea may narrow the general policy, but it cannot override a required rule.",
         "9. Start approved work through Delta Loop so it uses the saved compute location; do not silently move work to another machine.",
         "",
-        "## Enabled general rules",
+        "## Research map",
+        "",
+        "The project may have several high-level questions and shared ideas or experiments. Follow the recorded relationships instead of assuming one fixed tree.",
+        "",
+        "| ID | Level | Title | Status |",
+        "|---|---|---|---|",
     ]
+
+    level_names = {"question": "Question", "direction": "Idea", "approach": "Experiment"}
+    for node in workspace.nodes:
+        lines.append(
+            f"| `{_table(node.id)}` | {_table(level_names[node.kind])} | "
+            f"{_table(node.title)} | {_table(node.status)} |"
+        )
+    lines.extend(["", "| From | Relationship | To | Note |", "|---|---|---|---|"])
+    nodes_by_id = {node.id: node for node in workspace.nodes}
+    for link in workspace.research_links:
+        source = nodes_by_id.get(link.source_id)
+        target = nodes_by_id.get(link.target_id)
+        if source and target:
+            lines.append(
+                f"| {_table(source.title)} | {_table(link.relationship.replace('-', ' '))} | "
+                f"{_table(target.title)} | {_table(link.note or '—')} |"
+            )
+    if not workspace.research_links:
+        lines.append("| — | No relationships recorded | — | — |")
+    lines.extend(["", "## Enabled general rules"])
 
     enabled = [rule for rule in (active.rules if active else []) if rule.enabled]
     for category in CATEGORY_NAMES:
@@ -130,13 +155,22 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         ]
     )
     for approach in approaches:
+        connected_direction_ids = [
+            link.source_id for link in workspace.research_links
+            if link.target_id == approach.id and link.relationship == "tests"
+        ]
+        connected_directions = [
+            directions[node_id].title for node_id in connected_direction_ids
+            if node_id in directions
+        ]
         direction = directions.get(approach.parent_id or "")
+        idea_names = connected_directions or ([direction.title] if direction else [])
         lines.append(
             "| "
             + " | ".join(
                 [
                     _table(approach.title),
-                    _table(direction.title if direction else "Not linked"),
+                    _table("; ".join(idea_names) if idea_names else "Not linked"),
                     _table(approach.status),
                     _table(WORK_KIND_NAMES.get(approach.next_work_kind, approach.next_work_kind)),
                     _table(approach.agent_guidance or "Use the general policy"),

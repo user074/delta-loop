@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .compute import (
@@ -16,6 +17,7 @@ from .compute import (
     inspect_local_compute,
     inspect_remote_compute,
     inspect_remote_project,
+    read_remote_project_files,
     validate_compute,
 )
 from .harness import HarnessFailure, inspect_harness, update_harness
@@ -35,9 +37,14 @@ from .models import (
     QuestionRevision,
     QuickNote,
     QuickNoteRequest,
+    ResearchLink,
+    ResearchLinkRequest,
     ResearchNode,
+    ResearchNodeRevision,
     RemoteProjectInspectRequest,
     RemoteProjectInspection,
+    RemoteProjectReadRequest,
+    RemoteProjectReading,
     ResultReview,
     ResultReviewRequest,
     RulesDraftRequest,
@@ -56,6 +63,7 @@ from .project_setup import (
     complete_project_setup,
     create_remote_workspace,
 )
+from .research_map import default_relationship, ensure_research_links, primary_parent_link
 from .protocols import default_protocols, next_stage
 from .rules import (
     POLICY_SCHEMA_VERSION,
@@ -161,7 +169,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="Project not found.")
         runner.refresh(workspace_id)
         workspace = store.get(workspace_id) or workspace
-        if ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
+        if ensure_research_links(workspace) or ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
             save_with_policy(workspace)
         return workspace
 
@@ -179,7 +187,7 @@ def create_app(
         for workspace in workspaces:
             runner.refresh(workspace.id)
             workspace = store.get(workspace.id) or workspace
-            if ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
+            if ensure_research_links(workspace) or ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
                 save_with_policy(workspace)
         return store.list()
 
@@ -207,7 +215,10 @@ def create_app(
         )
         workspace.goal = goal
         workspace.last_updated = now_iso()
-        question = next((node for node in workspace.nodes if node.kind == "question"), None)
+        question = next(
+            (node for node in workspace.nodes if node.kind == "question" and node.status == "primary"),
+            None,
+        ) or next((node for node in workspace.nodes if node.kind == "question"), None)
         if question:
             question.title = goal
         return save_with_policy(workspace)
@@ -357,6 +368,29 @@ def create_app(
             store.save(workspace)
         return inspection
 
+    @app.post(
+        "/api/workspaces/{workspace_id}/setup/read-remote",
+        response_model=RemoteProjectReading,
+    )
+    def read_remote_project_for_setup(
+        workspace_id: str,
+        request: RemoteProjectReadRequest,
+    ) -> RemoteProjectReading:
+        workspace = workspace_or_404(workspace_id)
+        if workspace.project_source != "remote":
+            raise HTTPException(
+                status_code=409,
+                detail="This project uses a local folder. Remote file reading is only used for remote projects.",
+            )
+        try:
+            return read_remote_project_files(
+                request.ssh_host.strip(),
+                request.project_path.strip(),
+                request.paths,
+            )
+        except ComputeFailure as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/api/workspaces/import", response_model=ProjectSnapshot)
     def import_project(request: ImportRequest) -> ProjectSnapshot:
         try:
@@ -390,6 +424,11 @@ def create_app(
             raise HTTPException(status_code=404, detail="Idea not found.")
         if patch.title is not None and not patch.title.strip():
             raise HTTPException(status_code=422, detail="The idea needs a short name.")
+        if patch.protocol_id:
+            if node.kind != "approach":
+                raise HTTPException(status_code=422, detail="Testing styles apply only to experiments.")
+            if patch.protocol_id not in protocols:
+                raise HTTPException(status_code=422, detail="Testing style not found.")
         if patch.parent_id is not None:
             parent = next((item for item in workspace.nodes if item.id == patch.parent_id), None)
             expected_parent = "question" if node.kind == "direction" else "direction"
@@ -402,16 +441,65 @@ def create_app(
                         else "A way to test an idea must sit under an idea."
                     ),
                 )
-        if patch.protocol_id:
-            if node.kind != "approach":
-                raise HTTPException(status_code=422, detail="Testing styles apply only to ways of testing an idea.")
-            if patch.protocol_id not in protocols:
-                raise HTTPException(status_code=422, detail="Testing style not found.")
+            old_parent_link = primary_parent_link(workspace, node.id)
+            if old_parent_link and old_parent_link.source_id != parent.id:
+                workspace.research_links.remove(old_parent_link)
+            relationship = default_relationship(parent.kind, node.kind)
+            if relationship and not any(
+                link.source_id == parent.id
+                and link.target_id == node.id
+                and link.relationship == relationship
+                for link in workspace.research_links
+            ):
+                workspace.research_links.append(
+                    ResearchLink(
+                        id=f"link-{uuid4().hex[:10]}",
+                        source_id=parent.id,
+                        target_id=node.id,
+                        relationship=relationship,
+                        note=patch.reason.strip(),
+                    )
+                )
         changes = patch.model_dump(exclude_none=True)
+        reason = str(changes.pop("reason", "")).strip()
         if "title" in changes:
             changes["title"] = changes["title"].strip()
+        becoming_primary_question = (
+            node.kind == "question" and changes.get("status") == "primary"
+        )
+        primary_question_title_change = (
+            node.kind == "question" and node.status == "primary" and "title" in changes
+        )
+        if becoming_primary_question:
+            for other in workspace.nodes:
+                if other.kind == "question" and other.id != node.id and other.status == "primary":
+                    other.status = "active"
+        if primary_question_title_change or becoming_primary_question:
+            new_goal = str(changes.get("title", node.title))
+            if new_goal != workspace.goal:
+                workspace.question_history.append(
+                    QuestionRevision(previous=workspace.goal, current=new_goal, reason=reason)
+                )
+                workspace.goal = new_goal
+        map_fields = {"title", "summary", "parent_id", "status", "promise"}
+        visible_changes: dict[str, str] = {}
+        for field in map_fields & changes.keys():
+            old = getattr(node, field)
+            new = changes[field]
+            if old != new:
+                visible_changes[field] = f"{old or 'None'} → {new or 'None'}"
         for field, value in changes.items():
             setattr(node, field, value)
+        if visible_changes:
+            workspace.node_history.append(
+                ResearchNodeRevision(
+                    id=f"node-change-{uuid4().hex[:10]}",
+                    node_id=node.id,
+                    node_kind=node.kind,
+                    changes=visible_changes,
+                    reason=reason,
+                )
+            )
         if {"next_work_kind", "agent_guidance", "ask_before"} & changes.keys():
             node.policy_updated_at = now_iso()
         workspace.last_updated = now_iso()
@@ -428,16 +516,24 @@ def create_app(
         if not text:
             raise HTTPException(status_code=422, detail="Write a short idea or note first.")
         requested_parent = None
-        if request.kind == "way-to-test" and request.parent_id:
+        if request.kind in {"idea", "way-to-test"} and request.parent_id:
+            expected_kind = "question" if request.kind == "idea" else "direction"
             requested_parent = next(
                 (
                     node for node in workspace.nodes
-                    if node.kind == "direction" and node.id == request.parent_id
+                    if node.kind == expected_kind and node.id == request.parent_id
                 ),
                 None,
             )
             if not requested_parent:
-                raise HTTPException(status_code=422, detail="Choose an idea for this way of testing it.")
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Choose a research question for this idea."
+                        if request.kind == "idea"
+                        else "Choose an idea for this way of testing it."
+                    ),
+                )
         note = QuickNote(
             id=f"note-{uuid4().hex[:10]}",
             text=text,
@@ -447,34 +543,115 @@ def create_app(
         workspace.notes.append(note)
         question = next((node for node in workspace.nodes if node.kind == "question"), None)
         direction = next((node for node in workspace.nodes if node.kind == "direction"), None)
-        if request.kind == "idea":
-            workspace.nodes.append(
-                ResearchNode(
-                    id=f"idea-{uuid4().hex[:10]}",
-                    kind="direction",
-                    title=text,
-                    summary=request.summary.strip() or "Added after discussion.",
-                    parent_id=question.id if question else None,
-                    status="active",
-                    promise="unassessed",
-                    evidence_strength="none",
-                )
+        created_node = None
+        if request.kind == "question":
+            created_node = ResearchNode(
+                id=f"question-{uuid4().hex[:10]}",
+                kind="question",
+                title=text,
+                summary=request.summary.strip() or "Added after discussion.",
+                status="active",
+                promise="unassessed",
+                evidence_strength="none",
             )
+            workspace.nodes.append(created_node)
+        elif request.kind == "idea":
+            parent_id = requested_parent.id if requested_parent else (question.id if question else None)
+            created_node = ResearchNode(
+                id=f"idea-{uuid4().hex[:10]}",
+                kind="direction",
+                title=text,
+                summary=request.summary.strip() or "Added after discussion.",
+                parent_id=parent_id,
+                status="active",
+                promise="unassessed",
+                evidence_strength="none",
+            )
+            workspace.nodes.append(created_node)
         elif request.kind == "way-to-test":
             parent_id = requested_parent.id if requested_parent else (direction.id if direction else None)
-            workspace.nodes.append(
-                ResearchNode(
-                    id=f"test-{uuid4().hex[:10]}",
-                    kind="approach",
-                    title=text,
-                    summary=request.summary.strip() or "Added after discussion.",
-                    parent_id=parent_id,
-                    status="active",
-                    promise="unassessed",
-                    evidence_strength="none",
-                    current_stage="minimal-probe",
-                )
+            created_node = ResearchNode(
+                id=f"test-{uuid4().hex[:10]}",
+                kind="approach",
+                title=text,
+                summary=request.summary.strip() or "Added after discussion.",
+                parent_id=parent_id,
+                status="active",
+                promise="unassessed",
+                evidence_strength="none",
+                current_stage="minimal-probe",
             )
+            workspace.nodes.append(created_node)
+        if created_node and created_node.parent_id:
+            parent = next((node for node in workspace.nodes if node.id == created_node.parent_id), None)
+            relationship = default_relationship(parent.kind, created_node.kind) if parent else None
+            if relationship:
+                workspace.research_links.append(
+                    ResearchLink(
+                        id=f"link-{uuid4().hex[:10]}",
+                        source_id=parent.id,
+                        target_id=created_node.id,
+                        relationship=relationship,
+                    )
+                )
+        return save_with_policy(workspace)
+
+    @app.post("/api/workspaces/{workspace_id}/research-links", response_model=ProjectSnapshot)
+    def connect_research_nodes(
+        workspace_id: str,
+        request: ResearchLinkRequest,
+    ) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        nodes = {node.id: node for node in workspace.nodes}
+        source = nodes.get(request.source_id)
+        target = nodes.get(request.target_id)
+        if not source or not target:
+            raise HTTPException(status_code=404, detail="One of the research-map items was not found.")
+        if source.id == target.id:
+            raise HTTPException(status_code=422, detail="An item cannot connect to itself.")
+        if request.relationship == "explores" and (source.kind, target.kind) != ("question", "direction"):
+            raise HTTPException(status_code=422, detail="An explores link must go from a question to an idea.")
+        if request.relationship == "tests" and (source.kind, target.kind) != ("direction", "approach"):
+            raise HTTPException(status_code=422, detail="A tests link must go from an idea to an experiment.")
+        if any(
+            link.source_id == source.id
+            and link.target_id == target.id
+            and link.relationship == request.relationship
+            for link in workspace.research_links
+        ):
+            raise HTTPException(status_code=409, detail="That relationship is already shown on the map.")
+        workspace.research_links.append(
+            ResearchLink(
+                id=f"link-{uuid4().hex[:10]}",
+                source_id=source.id,
+                target_id=target.id,
+                relationship=request.relationship,
+                note=request.note.strip(),
+            )
+        )
+        if request.relationship in {"explores", "tests"} and target.parent_id is None:
+            target.parent_id = source.id
+        workspace.last_updated = now_iso()
+        return save_with_policy(workspace)
+
+    @app.delete("/api/workspaces/{workspace_id}/research-links/{link_id}", response_model=ProjectSnapshot)
+    def disconnect_research_nodes(workspace_id: str, link_id: str) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        link = next((item for item in workspace.research_links if item.id == link_id), None)
+        if not link:
+            raise HTTPException(status_code=404, detail="Relationship not found.")
+        workspace.research_links.remove(link)
+        target = next((node for node in workspace.nodes if node.id == link.target_id), None)
+        if target and target.parent_id == link.source_id and link.relationship in {"explores", "tests"}:
+            replacement = next(
+                (
+                    item for item in workspace.research_links
+                    if item.target_id == target.id and item.relationship == link.relationship
+                ),
+                None,
+            )
+            target.parent_id = replacement.source_id if replacement else None
+        workspace.last_updated = now_iso()
         return save_with_policy(workspace)
 
     @app.post("/api/workspaces/{workspace_id}/protocol-decisions", response_model=ProjectSnapshot)
@@ -801,7 +978,20 @@ def create_app(
             raise RuntimeError(
                 f"The Delta Loop web app is not built at {built_web}. Run ./install.sh first."
             )
-        app.mount("/", StaticFiles(directory=built_web, html=True), name="web")
+        assets = built_web / "assets"
+        if assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets), name="web-assets")
+
+        @app.get("/", include_in_schema=False)
+        def installed_web_home() -> FileResponse:
+            return FileResponse(built_web / "index.html")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def installed_web_route(path: str) -> FileResponse:
+            requested = (built_web / path).resolve()
+            if requested.is_relative_to(built_web) and requested.is_file():
+                return FileResponse(requested)
+            return FileResponse(built_web / "index.html")
 
     return app
 

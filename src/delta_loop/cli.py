@@ -93,6 +93,16 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
         "--url",
         default=_default_api_url(),
     )
+    project_read = project_subparsers.add_parser(
+        "read-remote",
+        help="Read selected text files inside the remote project after mapping it",
+    )
+    project_read.add_argument("paths", nargs="+")
+    project_read.add_argument("--host", required=True, dest="ssh_host")
+    project_read.add_argument("--project", required=True, dest="project_path")
+    project_read.add_argument("--json", action="store_true", dest="as_json")
+    project_read.add_argument("--workspace")
+    project_read.add_argument("--url", default=_default_api_url())
 
     compute_parser = subparsers.add_parser(
         "compute", help="Read, change, or check where research work runs"
@@ -252,11 +262,15 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
 
     map_parser = subparsers.add_parser("map", help="Read or develop the research idea map")
     map_subparsers = map_parser.add_subparsers(dest="map_command", required=True)
-    map_show = map_subparsers.add_parser("show", help="Show the question, ideas, and ways to test them")
+    map_show = map_subparsers.add_parser("show", help="Show questions, ideas, experiments, and their relationships")
     map_show.add_argument("--json", action="store_true", dest="as_json")
-    map_add_idea = map_subparsers.add_parser("add-idea", help="Add an idea under the main question")
+    map_add_question = map_subparsers.add_parser("add-question", help="Add another high-level research question")
+    map_add_question.add_argument("title")
+    map_add_question.add_argument("--summary", default="")
+    map_add_idea = map_subparsers.add_parser("add-idea", help="Add an idea under a research question")
     map_add_idea.add_argument("title")
     map_add_idea.add_argument("--summary", default="")
+    map_add_idea.add_argument("--under", dest="parent_id")
     map_add_test = map_subparsers.add_parser("add-test", help="Add a way to test an idea")
     map_add_test.add_argument("title")
     map_add_test.add_argument("--under", required=True, dest="parent_id")
@@ -268,7 +282,19 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     map_update.add_argument("--parent", dest="parent_id")
     map_update.add_argument("--status", choices=["primary", "active", "dormant", "closed"])
     map_update.add_argument("--promise", choices=["high", "medium", "low", "unassessed"])
-    for item in (map_show, map_add_idea, map_add_test, map_update):
+    map_update.add_argument("--reason", default="")
+    map_connect = map_subparsers.add_parser("connect", help="Show how two research-map items relate")
+    map_connect.add_argument("source_id")
+    map_connect.add_argument("target_id")
+    map_connect.add_argument(
+        "--relationship",
+        required=True,
+        choices=["explores", "tests", "supports", "challenges", "informs", "depends-on", "related"],
+    )
+    map_connect.add_argument("--note", default="")
+    map_disconnect = map_subparsers.add_parser("disconnect", help="Remove a relationship from the map")
+    map_disconnect.add_argument("link_id")
+    for item in (map_show, map_add_question, map_add_idea, map_add_test, map_update, map_connect, map_disconnect):
         item.add_argument("--workspace")
         item.add_argument("--url", default=_default_api_url())
 
@@ -305,6 +331,15 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
                 args.workspace,
                 args.ssh_host,
                 args.project_path,
+                args.as_json,
+            )
+        elif args.project_command == "read-remote":
+            _read_remote_project(
+                args.url,
+                args.workspace,
+                args.ssh_host,
+                args.project_path,
+                args.paths,
                 args.as_json,
             )
         else:
@@ -435,8 +470,10 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     if args.command == "map":
         if args.map_command == "show":
             _show_map(args.url, args.workspace, args.as_json)
+        elif args.map_command == "add-question":
+            _add_map_node(args.url, args.workspace, "question", args.title, args.summary, None)
         elif args.map_command == "add-idea":
-            _add_map_node(args.url, args.workspace, "idea", args.title, args.summary, None)
+            _add_map_node(args.url, args.workspace, "idea", args.title, args.summary, args.parent_id)
         elif args.map_command == "add-test":
             _add_map_node(
                 args.url,
@@ -446,7 +483,7 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
                 args.summary,
                 args.parent_id,
             )
-        else:
+        elif args.map_command == "update":
             _update_map_node(
                 args.url,
                 args.workspace,
@@ -456,7 +493,19 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
                 args.parent_id,
                 args.status,
                 args.promise,
+                args.reason,
             )
+        elif args.map_command == "connect":
+            _connect_map_nodes(
+                args.url,
+                args.workspace,
+                args.source_id,
+                args.target_id,
+                args.relationship,
+                args.note,
+            )
+        else:
+            _disconnect_map_nodes(args.url, args.workspace, args.link_id)
         return
 
     try:
@@ -630,9 +679,29 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
     workspace_id, node_id = _ids(workspace_id, node_id)
     workspace = _workspace(base_url, workspace_id)
     node = _selected_node(workspace, node_id)
+    nodes_by_id = {item["id"]: item for item in workspace.get("nodes", [])}
+    selected_relationships = []
+    if node:
+        for link in workspace.get("research_links", []):
+            if link["source_id"] == node["id"]:
+                other = nodes_by_id.get(link["target_id"])
+                if other:
+                    selected_relationships.append(
+                        {"direction": "outgoing", "relationship": link["relationship"], "item": other}
+                    )
+            elif link["target_id"] == node["id"]:
+                other = nodes_by_id.get(link["source_id"])
+                if other:
+                    selected_relationships.append(
+                        {"direction": "incoming", "relationship": link["relationship"], "item": other}
+                    )
     context = {
         "main_question": workspace["goal"],
+        "research_questions": [
+            item for item in workspace.get("nodes", []) if item["kind"] == "question"
+        ],
         "selected": node,
+        "selected_relationships": selected_relationships,
         "compute": workspace.get("compute"),
         "research_loop_instructions": workspace.get("loop_file"),
         "base_harness": workspace.get("harness"),
@@ -652,8 +721,13 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
         print(json.dumps(context, indent=2))
         return
     print(f"Main question: {context['main_question']}")
+    other_questions = [
+        item for item in context["research_questions"] if item["title"] != context["main_question"]
+    ]
+    for question in other_questions:
+        print(f"Additional question [{question['id']}]: {question['title']}")
     if workspace.get("setup_status") == "needs-setup":
-        print("Project setup: incomplete — agree on the question and idea map before research starts")
+        print("Project setup: incomplete — agree on the research questions and map before research starts")
     compute = context["compute"] or {}
     if not compute.get("configured"):
         print("Work runs on: not set up")
@@ -668,7 +742,16 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
     if context["research_loop_instructions"]:
         print(f"Complete research loop: {context['research_loop_instructions']}")
     if node:
-        print(f"Selected {node['kind']}: {node['title']}")
+        node_label = {"question": "question", "direction": "idea", "approach": "experiment"}.get(
+            node["kind"], node["kind"]
+        )
+        print(f"Selected {node_label}: {node['title']}")
+        for relationship in selected_relationships:
+            arrow = "→" if relationship["direction"] == "outgoing" else "←"
+            print(
+                f"  {arrow} {relationship['relationship']}: "
+                f"{relationship['item']['title']} [{relationship['item']['id']}]"
+            )
         if node["kind"] == "approach":
             print(f"Next work: {node['next_work_kind'].replace('-', ' ')}")
             print(f"Guidance: {node['agent_guidance'] or 'None recorded.'}")
@@ -747,9 +830,22 @@ def _inspect_remote_project(
         f"Remote project: {inspection['project_path']} "
         f"({'found' if inspection['project_exists'] else 'missing'})"
     )
+    print(
+        f"Mapped {inspection['total_files']} files recursively"
+        f"{' (showing the first 500)' if inspection['inventory_truncated'] else ''}."
+    )
+    if inspection["file_types"]:
+        common_types = sorted(
+            inspection["file_types"].items(), key=lambda item: item[1], reverse=True
+        )[:12]
+        print("Main file types: " + ", ".join(f"{kind} {count}" for kind, count in common_types))
     if inspection["top_level_files"]:
-        print("Project files (bounded to two levels):")
+        print("Recursive project tree:")
         for name in inspection["top_level_files"]:
+            print(f"- {name}")
+    if inspection["entry_points"]:
+        print("Likely entry points:")
+        for name in inspection["entry_points"]:
             print(f"- {name}")
     for name, content in inspection["documentation"].items():
         print(f"\n--- {name} (bounded excerpt) ---")
@@ -767,6 +863,36 @@ def _inspect_remote_project(
         print("Recent commits:")
         for line in inspection["recent_commits"]:
             print(f"- {line}")
+
+
+def _read_remote_project(
+    base_url: str,
+    workspace_id: str | None,
+    ssh_host: str,
+    project_path: str,
+    paths: list[str],
+    as_json: bool,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    reading = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/setup/read-remote",
+        method="POST",
+        payload={
+            "ssh_host": ssh_host,
+            "project_path": project_path,
+            "paths": paths,
+        },
+    )
+    if as_json:
+        print(json.dumps(reading, indent=2))
+        return
+    for name, content in reading["files"].items():
+        print(f"\n--- {name} (first 16 KB) ---")
+        print(content.rstrip())
+    for name, problem in reading["problems"].items():
+        print(f"\nCould not read {name}: {problem}")
 
 
 def _set_compute(
@@ -1292,25 +1418,27 @@ def _map_nodes(workspace: dict) -> list[dict]:
 
 def _show_map(base_url: str, workspace_id: str | None, as_json: bool) -> None:
     workspace_id, _ = _ids(workspace_id)
-    nodes = _map_nodes(_workspace(base_url, workspace_id))
+    workspace = _workspace(base_url, workspace_id)
+    nodes = _map_nodes(workspace)
+    links = workspace.get("research_links", [])
     if as_json:
-        print(json.dumps(nodes, indent=2))
+        print(json.dumps({"nodes": nodes, "links": links}, indent=2))
         return
-    question = next((node for node in nodes if node["kind"] == "question"), None)
-    directions = [node for node in nodes if node["kind"] == "direction"]
-    approaches = [node for node in nodes if node["kind"] == "approach"]
-    print(f"Main question: {question['title'] if question else 'Not recorded.'}")
-    for direction in directions:
-        print(f"\nIdea [{direction['id']}]: {direction['title']}")
-        print(f"  {direction['status']} · {direction['promise']} potential")
-        if direction["summary"]:
-            print(f"  {direction['summary']}")
-        children = [node for node in approaches if node["parent_id"] == direction["id"]]
-        for approach in children:
-            print(f"  - Test [{approach['id']}]: {approach['title']}")
-            print(f"    {approach['status']} · {approach['promise']} potential")
-            if approach["summary"]:
-                print(f"    {approach['summary']}")
+    labels = {"question": "Question", "direction": "Idea", "approach": "Experiment"}
+    for kind in ("question", "direction", "approach"):
+        print(f"\n{labels[kind]}s")
+        for node in (item for item in nodes if item["kind"] == kind):
+            print(f"- [{node['id']}] {node['title']} ({node['status']})")
+            if node["summary"]:
+                print(f"  {node['summary']}")
+    print("\nRelationships")
+    by_id = {node["id"]: node for node in nodes}
+    for link in links:
+        source = by_id.get(link["source_id"], {"title": link["source_id"]})
+        target = by_id.get(link["target_id"], {"title": link["target_id"]})
+        print(f"- [{link['id']}] {source['title']} --{link['relationship']}--> {target['title']}")
+        if link.get("note"):
+            print(f"  {link['note']}")
 
 
 def _add_map_node(
@@ -1337,8 +1465,49 @@ def _add_map_node(
         },
     )
     created = next(node for node in updated["nodes"] if node["id"] not in before_ids)
-    label = "idea" if created["kind"] == "direction" else "way to test it"
+    label = {"question": "question", "direction": "idea", "approach": "experiment"}[created["kind"]]
     print(f"Added {label}: {created['title']} [{created['id']}]")
+
+
+def _connect_map_nodes(
+    base_url: str,
+    workspace_id: str | None,
+    source_id: str,
+    target_id: str,
+    relationship: str,
+    note: str,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    updated = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/research-links",
+        method="POST",
+        payload={
+            "source_id": source_id,
+            "target_id": target_id,
+            "relationship": relationship,
+            "note": note,
+        },
+    )
+    link = updated["research_links"][-1]
+    print(f"Connected map items: {relationship} [{link['id']}]")
+
+
+def _disconnect_map_nodes(
+    base_url: str,
+    workspace_id: str | None,
+    link_id: str,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    link_path = urllib.parse.quote(link_id, safe="")
+    _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/research-links/{link_path}",
+        method="DELETE",
+    )
+    print(f"Removed relationship: {link_id}")
 
 
 def _update_map_node(
@@ -1350,6 +1519,7 @@ def _update_map_node(
     parent_id: str | None,
     status: str | None,
     promise: str | None,
+    reason: str,
 ) -> None:
     workspace_id, _ = _ids(workspace_id)
     changes = {
@@ -1365,6 +1535,7 @@ def _update_map_node(
     }
     if not changes:
         raise SystemExit("Nothing changed. Add a title, summary, parent, status, or potential.")
+    changes["reason"] = reason
     workspace_path = urllib.parse.quote(workspace_id, safe="")
     node_path = urllib.parse.quote(node_id, safe="")
     updated = _api_json(

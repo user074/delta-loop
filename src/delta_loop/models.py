@@ -7,6 +7,15 @@ from pydantic import BaseModel, Field
 
 
 NodeKind = Literal["question", "direction", "approach"]
+ResearchRelation = Literal[
+    "explores",
+    "tests",
+    "supports",
+    "challenges",
+    "informs",
+    "depends-on",
+    "related",
+]
 NodeStatus = Literal["primary", "active", "dormant", "closed"]
 Promise = Literal["high", "medium", "low", "unassessed"]
 EvidenceStrength = Literal["strong", "mixed", "weak", "none"]
@@ -90,9 +99,27 @@ class ResearchNode(BaseModel):
     policy_updated_at: str = ""
 
 
+class ResearchLink(BaseModel):
+    id: str
+    source_id: str
+    target_id: str
+    relationship: ResearchRelation
+    note: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
 class QuestionRevision(BaseModel):
     previous: str
     current: str
+    reason: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ResearchNodeRevision(BaseModel):
+    id: str
+    node_id: str
+    node_kind: NodeKind
+    changes: dict[str, str]
     reason: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -344,12 +371,30 @@ class RemoteProjectInspection(BaseModel):
     project_path: str
     project_exists: bool = False
     top_level_files: list[str] = Field(default_factory=list)
+    total_files: int = 0
+    inventory_truncated: bool = False
+    entry_points: list[str] = Field(default_factory=list)
+    file_types: dict[str, int] = Field(default_factory=dict)
     documentation: dict[str, str] = Field(default_factory=dict)
     git_branch: str = ""
     git_remote: str = ""
     git_status: list[str] = Field(default_factory=list)
     recent_commits: list[str] = Field(default_factory=list)
     inspected_at: str = Field(default_factory=now_iso)
+
+
+class RemoteProjectReadRequest(BaseModel):
+    ssh_host: str
+    project_path: str
+    paths: list[str] = Field(min_length=1, max_length=12)
+
+
+class RemoteProjectReading(BaseModel):
+    host: str
+    project_path: str
+    files: dict[str, str] = Field(default_factory=dict)
+    problems: dict[str, str] = Field(default_factory=dict)
+    read_at: str = Field(default_factory=now_iso)
 
 
 class ProjectSnapshot(BaseModel):
@@ -365,6 +410,7 @@ class ProjectSnapshot(BaseModel):
     claims: list[Claim] = Field(default_factory=list)
     runs: list[RunRecord] = Field(default_factory=list)
     nodes: list[ResearchNode] = Field(default_factory=list)
+    research_links: list[ResearchLink] = Field(default_factory=list)
     scratch: list[str] = Field(default_factory=list)
     protocol_id: str = "fast-signal-first"
     protocol_version: int = 1
@@ -381,6 +427,7 @@ class ProjectSnapshot(BaseModel):
     policy_synced_at: str = ""
     harness: HarnessInfo = Field(default_factory=HarnessInfo)
     question_history: list[QuestionRevision] = Field(default_factory=list)
+    node_history: list[ResearchNodeRevision] = Field(default_factory=list)
     compute: ComputeConfig = Field(default_factory=ComputeConfig)
     compute_inspection: ComputeInspection | None = None
     setup_status: ProjectSetupStatus = "ready"
@@ -417,6 +464,14 @@ class NodePatch(BaseModel):
     next_work_kind: WorkKind | None = None
     agent_guidance: str | None = None
     ask_before: str | None = None
+    reason: str = ""
+
+
+class ResearchLinkRequest(BaseModel):
+    source_id: str
+    target_id: str
+    relationship: ResearchRelation
+    note: str = ""
 
 
 class ProtocolDecisionRequest(BaseModel):

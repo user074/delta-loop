@@ -107,6 +107,16 @@ def test_remote_project_setup_reads_only_bounded_useful_files(
     (project / "pyproject.toml").write_text("[project]\nname = 'remote-study'\n", encoding="utf-8")
     (project / ".env").write_text("SECRET_SHOULD_NOT_BE_READ=1\n", encoding="utf-8")
     (project / "large-result.bin").write_bytes(b"result" * 1000)
+    nested = project / "src" / "model" / "training" / "pipelines"
+    nested.mkdir(parents=True)
+    (nested / "train.py").write_text(
+        "from src.model.core import Model\n\ndef train():\n    return Model()\n",
+        encoding="utf-8",
+    )
+    (project / "src" / "model" / "core.py").write_text(
+        "class Model:\n    pass\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("DELTA_LOOP_SSH_COMMAND", str(fake_ssh(tmp_path)))
     app = create_app(tmp_path / "data" / "workspaces.json")
 
@@ -124,10 +134,36 @@ def test_remote_project_setup_reads_only_bounded_useful_files(
         assert inspection["project_exists"] is True
         assert "This studies long inputs" in inspection["documentation"]["README.md"]
         assert "existing evaluation script" in inspection["documentation"]["AGENTS.md"]
+        assert inspection["total_files"] >= 5
+        assert "src/model/training/pipelines/train.py" in inspection["top_level_files"]
+        assert "src/model/training/pipelines/train.py" in inspection["entry_points"]
+        assert "def train" in inspection["documentation"]["src/model/training/pipelines/train.py"]
+        assert inspection["file_types"][".py"] == 2
         assert ".env" not in inspection["top_level_files"]
         assert ".env" not in inspection["documentation"]
-        assert "large-result.bin" in inspection["top_level_files"]
+        assert "large-result.bin" not in inspection["top_level_files"]
         assert "large-result.bin" not in inspection["documentation"]
+
+        followed = client.post(
+            f"/api/workspaces/{workspace['id']}/setup/read-remote",
+            json={
+                "ssh_host": "fake-server",
+                "project_path": str(project),
+                "paths": ["src/model/core.py"],
+            },
+        )
+        assert followed.status_code == 200
+        assert "class Model" in followed.json()["files"]["src/model/core.py"]
+
+        secret = client.post(
+            f"/api/workspaces/{workspace['id']}/setup/read-remote",
+            json={
+                "ssh_host": "fake-server",
+                "project_path": str(project),
+                "paths": [".env"],
+            },
+        )
+        assert secret.status_code == 422
         refreshed = client.get(f"/api/workspaces/{workspace['id']}").json()
         assert refreshed["name"] == "existing-remote-repo"
 

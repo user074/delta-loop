@@ -45,9 +45,23 @@ Choose where your existing research code lives:
 - **This computer:** choose the project folder.
 - **Remote server:** chat with Codex, then give it the SSH name you already use and the project folder on that server.
 
-Codex reads a small, safe part of the project, explains what it found, and asks about the research question and
-rules it cannot infer. It does not install software, run experiments, or change the remote repository during this
-setup. You approve the proposed setup before Delta Loop saves it.
+Codex maps the project structure and reads the relevant source and documentation, explains what it found, and asks
+about the research question and rules it cannot infer. It does not install software, run experiments, or change the
+remote repository during setup. You approve the proposed setup before Delta Loop saves it.
+
+The proposed research map has three levels:
+
+```text
+High-level research question
+├── Mid-level idea or possible explanation
+│   ├── Concrete experiment
+│   └── Concrete experiment
+└── Mid-level idea or possible explanation
+    └── Concrete experiment
+```
+
+Delta Loop keeps the number of ideas small and records when an idea is reframed, parked, reopened, or moved, so
+you can review how the research direction evolved.
 
 ## What the POC can do
 
@@ -116,6 +130,7 @@ in the UI:
 ```bash
 delta context
 delta project inspect-remote --host lab-gpu --project ~/projects/my-research
+delta project read-remote --host lab-gpu --project ~/projects/my-research src/train.py src/model.py
 delta project finish-setup --summary "Short project summary" --reference /path/to/reference --constraint "Do not change the evaluation dataset"
 delta compute show
 delta compute inspect --local
@@ -130,8 +145,13 @@ delta policy show
 delta policy set --kind quick-test --guidance "Run the matched comparison first."
 delta question set "Updated research question" --reason "The recent result narrowed the scope."
 delta map show
-delta map add-idea "A possible explanation" --summary "Why it may matter"
+delta map add-question "How broadly does the effect generalize?" --summary "A second high-level question"
+delta map add-idea "A possible explanation" --under QUESTION_ID --summary "Why it may matter"
 delta map add-test "Smallest useful test" --under IDEA_ID
+delta map connect QUESTION_ID IDEA_ID --relationship explores --note "This idea may answer both questions"
+delta map connect ANOTHER_ID EXPERIMENT_ID --relationship tests
+delta map connect EXPERIMENT_ID ANOTHER_ID --relationship informs
+delta map disconnect LINK_ID
 delta map update NODE_ID --status dormant
 delta rules show
 delta rules sync
@@ -142,6 +162,18 @@ delta harness show
 delta harness update
 ```
 
+The Research page is a graph with three readable columns: high-level questions, mid-level ideas, and concrete
+experiments. A project can have several questions. An idea may connect to more than one question, and an experiment
+may test or inform more than one idea. Connections have plain meanings—`explores`, `tests`, `supports`, `challenges`,
+`informs`, `depends-on`, or `related`—and are drawn directly on the map. Selecting an item highlights only its
+connections and shows the same relationships in the detail panel. Existing projects keep their original primary
+parent for compatibility while Delta Loop automatically exposes that parent as a graph connection.
+
+The map is also the entry point for changing the research. **Add question** starts a focused Codex conversation.
+Selecting a question exposes **Add idea**; selecting an idea exposes **Add experiment**. Every selected item has
+**Explore**, **Revise**, and **Connect** actions. Codex receives the selected item and current graph automatically,
+proposes the change, and writes it only after the researcher approves it.
+
 ## Run research work on a remote server
 
 Delta Loop itself stays on your computer. Its web page, terminal, research map, and policy files remain local. The
@@ -149,11 +181,13 @@ Compute page can send only approved research runs to one server over SSH. It use
 with `ssh HOST` in your terminal, so Delta Loop never stores SSH passwords or private keys.
 
 On a clean start, choose **Remote server**. Delta Loop creates an empty local notes folder and opens Codex. Give
-Codex the SSH host or alias and the existing project folder on the server. Codex makes one bounded read-only pass
-over the project and one bounded server check, explains what it found, and asks for the research and server choices
-it cannot infer. Nothing is installed or run during this conversation. After you approve the proposal, Codex saves
-the remote connection, checks the exact environment, creates the initial local research state, and leaves the remote
-repository unchanged.
+Codex the SSH host or alias and the existing project folder on the server. Codex recursively maps the source tree,
+reads the main documentation and likely entry points, then follows relevant source files with focused read-only
+requests until it can explain the project. It also checks the server environment. Generated data, environments,
+outputs, model weights, binaries, credentials, and unrelated server folders are excluded. Nothing is installed or
+run during this conversation. Codex proposes a high-level question, a few mid-level ideas, concrete experiments,
+and the server setup. After you approve it, Codex populates the map, saves the connection, checks the exact
+environment, creates the initial local research state, and leaves the remote repository unchanged.
 
 For each remote run, Delta Loop copies the sealed plan to the configured run-record folder, starts the command as a
 background process, and reads its status and recent log over SSH. The job continues if the browser or Delta Loop is
@@ -168,9 +202,10 @@ Use **Reset setup** on the Compute page, or `delta compute reset`, to clear the 
 This does not delete run history, output, policy rules, or research files. A new local or remote choice is required
 before another run can start.
 
-The remote project and its Python environment should already exist. Codex runs one bounded, read-only
-`delta project inspect-remote` and one `delta compute inspect`. Those checks report objective facts such as the
-project documentation and Git state, environment candidates, visible GPUs, scheduler, storage, and an existing `INFRA.md`. Codex then asks the
+The remote project and its Python environment should already exist. Codex begins with a recursive, read-only
+`delta project inspect-remote`, follows relevant files with `delta project read-remote`, and runs one
+`delta compute inspect`. Those checks report objective facts such as the project documentation and Git state,
+environment candidates, visible GPUs, scheduler, storage, and an existing `INFRA.md`. Codex then asks the
 researcher about choices the server cannot reveal: the approved environment, storage policy, GPU and concurrency
 limits, login-node restrictions, and lab conventions. It saves compute settings and policy rules only after explicit
 confirmation, then proves that the exact environment setup resolves Python with `delta compute check`.

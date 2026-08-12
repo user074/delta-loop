@@ -14,6 +14,7 @@ from .models import (
     ComputeConfig,
     ComputeInspection,
     RemoteProjectInspection,
+    RemoteProjectReading,
 )
 
 
@@ -328,7 +329,7 @@ fi
 
 
 def inspect_remote_project(host: str, project_path: str) -> RemoteProjectInspection:
-    """Read a small, explicit set of files needed to understand a remote project."""
+    """Map a remote repository and read likely orientation and entry-point files."""
     transient = ComputeConfig(
         kind="ssh",
         name=host,
@@ -346,16 +347,54 @@ if [ ! -d "$project" ]; then
   exit 0
 fi
 emit project_exists 1
-find "$project" -maxdepth 2 -type f \
+inventory=$(mktemp "${TMPDIR:-/tmp}/delta-loop-inventory.XXXXXX") || exit 1
+trap 'rm -f "$inventory"' EXIT HUP INT TERM
+find "$project" -type f \
   ! -path '*/.git/*' ! -path '*/.venv/*' ! -path '*/venv/*' \
   ! -path '*/node_modules/*' ! -path '*/.cache/*' ! -path '*/__pycache__/*' \
+  ! -path '*/.pytest_cache/*' ! -path '*/.mypy_cache/*' ! -path '*/dist/*' ! -path '*/build/*' \
+  ! -path '*/data/*' ! -path '*/datasets/*' ! -path '*/checkpoints/*' ! -path '*/outputs/*' ! -path '*/runs/*' \
   ! -name '.env' ! -name '*.key' ! -name '*.pem' \
-  -print 2>/dev/null | sed "s#^$project/##" | head -80 | while IFS= read -r file; do
-    emit top_file "$file"
-  done
-for file in README.md AGENTS.md CLAUDE.md INFRA.md pyproject.toml package.json requirements.txt environment.yml environment.yaml Makefile; do
+  ! -name '*.bin' ! -name '*.pt' ! -name '*.pth' ! -name '*.ckpt' ! -name '*.safetensors' \
+  -print 2>/dev/null | sed "s#^$project/##" | LC_ALL=C sort > "$inventory"
+total_files=$(wc -l < "$inventory" | tr -d ' ')
+emit total_files "$total_files"
+[ "$total_files" -gt 500 ] && emit inventory_truncated 1 || emit inventory_truncated 0
+head -500 "$inventory" | while IFS= read -r file; do emit top_file "$file"; done
+awk '
+  function ext(path, base,n,parts) {
+    n=split(path,parts,"/"); base=parts[n];
+    if (base !~ /\./) return "[no extension]";
+    sub(/^.*\./,"",base); return "." tolower(base)
+  }
+  { counts[ext($0)]++ }
+  END { for (kind in counts) print kind "\t" counts[kind] }
+' "$inventory" | LC_ALL=C sort | while IFS="$(printf '\t')" read -r kind count; do
+  printf 'file_type\t%s\t%s\n' "$kind" "$count"
+done
+entry_candidates=$(awk '
+  BEGIN {
+    named="(^|/)(main|train|eval|evaluate|experiment|run|app|cli|server)\\.(py|sh|js|ts|tsx|ipynb)$"
+    placed="(^|/)(scripts?|experiments?|src|app|tests?)/[^/]+\\.(py|sh|js|ts|tsx|ipynb)$"
+  }
+  {
+    lower=tolower($0)
+    if (lower ~ named || lower ~ placed) print
+  }
+' "$inventory" | head -40)
+printf '%s\n' "$entry_candidates" | while IFS= read -r file; do
+  [ -n "$file" ] && emit entry_point "$file"
+done
+auto_files='README.md AGENTS.md CLAUDE.md INFRA.md pyproject.toml package.json requirements.txt environment.yml environment.yaml Makefile'
+for file in $auto_files; do
   [ -f "$project/$file" ] || continue
-  content=$(head -c 4000 "$project/$file" 2>/dev/null | base64 | tr -d '\n' | cut -c1-5336)
+  content=$(head -c 6000 "$project/$file" 2>/dev/null | base64 | tr -d '\n' | cut -c1-8000)
+  printf 'document\t%s\t%s\n' "$file" "$content"
+done
+printf '%s\n' "$entry_candidates" | head -8 | while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  case " $auto_files " in *" $file "*) continue ;; esac
+  content=$(head -c 6000 "$project/$file" 2>/dev/null | base64 | tr -d '\n' | cut -c1-8000)
   printf 'document\t%s\t%s\n' "$file" "$content"
 done
 if git -C "$project" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -372,6 +411,7 @@ fi
     )
     values: dict[str, list[str]] = {}
     documentation: dict[str, str] = {}
+    file_types: dict[str, int] = {}
     for line in completed.stdout.splitlines():
         key, separator, rest = line.partition("\t")
         if not separator:
@@ -385,6 +425,11 @@ fi
             except ValueError:
                 documentation[name] = "[The file could not be decoded.]"
             continue
+        if key == "file_type":
+            name, type_separator, count = rest.partition("\t")
+            if type_separator and count.isdigit():
+                file_types[name] = int(count)
+            continue
         values.setdefault(key, []).append(rest)
 
     def one(key: str, default: str = "") -> str:
@@ -395,11 +440,113 @@ fi
         project_path=one("project_path", project_path),
         project_exists=one("project_exists") == "1",
         top_level_files=values.get("top_file", []),
+        total_files=int(one("total_files", "0") or 0),
+        inventory_truncated=one("inventory_truncated") == "1",
+        entry_points=values.get("entry_point", []),
+        file_types=file_types,
         documentation=documentation,
         git_branch=one("git_branch"),
         git_remote=one("git_remote"),
         git_status=values.get("git_status", []),
         recent_commits=values.get("recent_commit", []),
+    )
+
+
+def read_remote_project_files(
+    host: str,
+    project_path: str,
+    paths: list[str],
+) -> RemoteProjectReading:
+    """Read researcher-requested text files without allowing paths outside the project."""
+    transient = ComputeConfig(
+        kind="ssh",
+        name=host,
+        ssh_host=host,
+        project_path=project_path,
+    )
+    validate_compute(transient)
+    cleaned: list[str] = []
+    for raw in paths:
+        path = raw.strip().removeprefix("./")
+        parts = Path(path).parts
+        name = Path(path).name.lower()
+        if (
+            not path
+            or path.startswith("/")
+            or path == ".."
+            or ".." in parts
+            or "\0" in path
+            or "\n" in path
+            or "\r" in path
+            or ".git" in parts
+            or name.startswith(".env")
+            or name.endswith((".key", ".pem", ".p12", ".pfx"))
+            or name in {"credentials", "credentials.json", "secrets.json"}
+        ):
+            raise ComputeFailure(f"This remote project file cannot be read through setup: {raw}")
+        cleaned.append(path)
+    if not cleaned:
+        raise ComputeFailure("Choose at least one remote project file to read.")
+    if len(cleaned) > 12:
+        raise ComputeFailure("Read at most 12 remote project files at once.")
+
+    script = r'''
+project=$1
+shift
+case "$project" in '~/'*) project="$HOME/${project#'~/'}" ;; esac
+if [ ! -d "$project" ]; then
+  printf 'problem\t[project]\tProject folder does not exist.\n'
+  exit 0
+fi
+for relative in "$@"; do
+  file="$project/$relative"
+  if [ -L "$file" ]; then
+    printf 'problem\t%s\tSymbolic links are not read during setup.\n' "$relative"
+    continue
+  fi
+  if [ ! -f "$file" ]; then
+    printf 'problem\t%s\tFile not found.\n' "$relative"
+    continue
+  fi
+  size=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+  if [ "$size" -gt 200000 ]; then
+    printf 'problem\t%s\tFile is too large to read during setup.\n' "$relative"
+    continue
+  fi
+  if LC_ALL=C grep -Iq . "$file" 2>/dev/null; then
+    content=$(head -c 16000 "$file" 2>/dev/null | base64 | tr -d '\n' | cut -c1-21336)
+    printf 'file\t%s\t%s\n' "$relative" "$content"
+  else
+    printf 'problem\t%s\tFile is binary or not plain text.\n' "$relative"
+  fi
+done
+'''
+    completed = run_ssh(
+        host,
+        _remote_command(script, project_path, *cleaned),
+        timeout=20,
+    )
+    files: dict[str, str] = {}
+    problems: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        key, separator, rest = line.partition("\t")
+        if not separator:
+            continue
+        name, value_separator, value = rest.partition("\t")
+        if not value_separator:
+            continue
+        if key == "file":
+            try:
+                files[name] = base64.b64decode(value).decode("utf-8", errors="replace")
+            except ValueError:
+                problems[name] = "The file could not be decoded."
+        elif key == "problem":
+            problems[name] = value
+    return RemoteProjectReading(
+        host=host,
+        project_path=project_path,
+        files=files,
+        problems=problems,
     )
 
 

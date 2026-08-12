@@ -381,32 +381,39 @@ a concise PI update: claims and decisions first, evidence one click deeper, raw 
 
 ### 7.2 Research
 
-The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. Its
-stable ownership hierarchy is:
+The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. It
+keeps three readable abstraction levels without forcing the research into one tree:
 
 ```text
-Research question
-  Direction / Arc
-    Approach
-      Work package
+One or more research questions
+  Ideas / directions
+    Concrete experiments
 ```
 
-A direction is a meaningful way to attack the research question. An approach is one concrete method within that
-direction. Each node can start with only a title and a short note; Delta should not force the researcher to fill a
-large form before preserving an idea.
+An idea is a meaningful explanation, mechanism, or strategic way to attack one or more research questions. An
+experiment is one concrete implementation, comparison, dataset, ablation, or measurement. Each node can start with
+only a title and a short note; Delta should not force the researcher to fill a large form before preserving it.
 
 The graph supports a small set of typed relationships:
 
 ```text
-contains          Direction → Approach
-alternative_to    Direction or Approach ↔ Direction or Approach
-derived_from      New direction or approach → prior observation or approach
-depends_on        Approach → prerequisite approach, artifact, or result
-informed_by       Direction or approach → claim, evidence, or lab note
+explores          Question → Idea
+tests             Idea → Experiment
+supports          Any research item → another research item
+challenges        Any research item → another research item
+informs           Any research item → another research item
+depends_on        Any research item → prerequisite research item
+related           Any research item ↔ another research item
 ```
 
-Every node has one primary parent for stable layout. Typed cross-links provide the graph relation without turning
-the POC into a general node editor.
+Questions, ideas, and experiments occupy stable visual columns. Existing imports retain one compatibility parent,
+but typed links are the source of the visible research relationships. An idea can explore several questions and an
+experiment can test or inform several ideas without being duplicated.
+
+The graph is an interaction surface, not only a report. The map header can start a new-question conversation.
+Selecting a question exposes Add idea; selecting an idea exposes Add experiment; and every item exposes Explore,
+Revise, and Connect. These actions open Codex with the selected item, current graph, and intended operation already
+in context. Structural changes remain conversational and require approval rather than becoming a dense form editor.
 
 A direction or approach records:
 
@@ -718,11 +725,12 @@ be added only after one real project demonstrates that it needs distinct control
 Imports the useful parts of `STATE.md`, `INFRA.md`, repository configuration, reference repositories, datasets,
 checkpoints, environment, evaluation conventions, and default policies.
 
-### ResearchDirection (Arc) and Approach
+### ResearchQuestion, ResearchIdea, and Experiment
 
 Represent the human's conceptual organization and history of allocation. They do not replace scientific claims.
-Each has a stable primary parent, a short lab-note representation, independent status/promise/evidence signals,
-typed cross-links, outcome summaries, and linked terminal sessions.
+Each has a short lab-note representation, independent status/promise/evidence signals, typed graph links, outcome
+summaries, and linked terminal sessions. A project may have multiple high-level questions, shared ideas, and
+cross-cutting experiments.
 
 ### LabNote
 
@@ -1334,10 +1342,10 @@ modifying or migrating existing files.
 **Goal:** Represent the researcher's conceptual layer, make it directly navigable into persistent terminal work,
 and expose editable rules.
 
-- Add one-line lab-note capture and explicit promotion into directions or approaches
-- Add directions and approaches with independent status, promise, evidence strength, history, allocation, and
-  revisit triggers
-- Add typed alternative, derivation, dependency, and evidence links with one stable primary parent
+- Add one-line lab-note capture and explicit promotion into questions, ideas, or experiments
+- Add multiple questions, ideas, and experiments with independent status, promise, evidence strength, history,
+  allocation, and revisit triggers
+- Add typed question-to-idea, idea-to-experiment, support, challenge, information, dependency, and related links
 - Link existing claims, reports, and runs to approaches
 - Implement the local PTY session service, browser terminal dock, and `delta terminal attach`
 - Implement a thin VS Code extension that publishes active editor/tab/selection and terminal shell-integration

@@ -2,7 +2,9 @@ import json
 from pathlib import Path
 import time
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from delta_loop.api import create_app
 from test_importer import STATE
@@ -104,6 +106,23 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         assert "Literature review" in policy_text
         assert "Read the closest prior work" in policy_text
         assert "Ask before changing the main dataset" in policy_text
+
+        evolved = client.patch(
+            f"/api/workspaces/{workspace_id}/nodes/{approach['id']}",
+            json={
+                "title": "Compare the two strongest explanations",
+                "status": "dormant",
+                "reason": "A broader result made this branch less urgent.",
+            },
+        ).json()
+        history = [
+            change for change in evolved["node_history"]
+            if change["node_id"] == approach["id"]
+        ]
+        assert len(history) == 2
+        assert "medium" in history[0]["changes"]["promise"]
+        assert "dormant" in history[-1]["changes"]["status"]
+        assert history[-1]["reason"] == "A broader result made this branch less urgent."
 
         changed_question = client.patch(
             f"/api/workspaces/{workspace_id}",
@@ -331,6 +350,89 @@ def test_new_idea_can_have_its_own_way_to_test(tmp_path: Path) -> None:
     assert any(node["id"] == new_direction["id"] for node in reimported["nodes"])
     preserved_test = next(node for node in reimported["nodes"] if node["id"] == new_test["id"])
     assert preserved_test["title"] == "Compare two matched encodings"
+
+
+def test_research_map_supports_multiple_questions_and_cross_links(tmp_path: Path) -> None:
+    project = tmp_path / "research"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    app = create_app(tmp_path / "loop-data.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/import", json={"path": str(project)}).json()
+        workspace_id = workspace["id"]
+        primary_question = next(node for node in workspace["nodes"] if node["kind"] == "question")
+        second = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "question",
+                "text": "How robust is the mechanism across domains?",
+                "summary": "A second high-level question.",
+            },
+        ).json()
+        second_question = next(
+            node for node in second["nodes"]
+            if node["title"] == "How robust is the mechanism across domains?"
+        )
+        with_shared_idea = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "idea",
+                "text": "The representation is domain-independent",
+                "summary": "This idea may answer both questions.",
+                "parent_id": second_question["id"],
+            },
+        ).json()
+        shared_idea = next(
+            node for node in with_shared_idea["nodes"]
+            if node["title"] == "The representation is domain-independent"
+        )
+        connected = client.post(
+            f"/api/workspaces/{workspace_id}/research-links",
+            json={
+                "source_id": primary_question["id"],
+                "target_id": shared_idea["id"],
+                "relationship": "explores",
+                "note": "The same mechanism could explain the original question.",
+            },
+        )
+        assert connected.status_code == 200
+        snapshot = connected.json()
+        questions = [node for node in snapshot["nodes"] if node["kind"] == "question"]
+        incoming = [
+            link for link in snapshot["research_links"]
+            if link["target_id"] == shared_idea["id"] and link["relationship"] == "explores"
+        ]
+        assert len(questions) == 2
+        assert {link["source_id"] for link in incoming} == {
+            primary_question["id"],
+            second_question["id"],
+        }
+
+        invalid = client.post(
+            f"/api/workspaces/{workspace_id}/research-links",
+            json={
+                "source_id": shared_idea["id"],
+                "target_id": primary_question["id"],
+                "relationship": "explores",
+            },
+        )
+        assert invalid.status_code == 422
+
+        promoted_question = client.patch(
+            f"/api/workspaces/{workspace_id}/nodes/{second_question['id']}",
+            json={"status": "primary", "reason": "This is now the main framing."},
+        ).json()
+        assert promoted_question["goal"] == second_question["title"]
+        assert len([
+            node for node in promoted_question["nodes"]
+            if node["kind"] == "question" and node["status"] == "primary"
+        ]) == 1
+
+        removed = client.delete(
+            f"/api/workspaces/{workspace_id}/research-links/{incoming[0]['id']}"
+        ).json()
+        assert len(removed["research_links"]) == len(snapshot["research_links"]) - 1
 
 
 def test_plan_run_and_review_flow(tmp_path: Path) -> None:
@@ -583,6 +685,9 @@ def test_installed_app_serves_web_ui_and_api_from_one_port(tmp_path: Path) -> No
     with TestClient(app) as client:
         page = client.get("/")
         health = client.get("/api/health")
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/not-a-terminal"):
+                pass
 
     assert page.status_code == 200
     assert "Installed Delta Loop" in page.text
