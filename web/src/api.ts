@@ -1,5 +1,6 @@
 import type {
   AgentRule,
+  ComputeConfig,
   TerminalSessionInfo,
   Workspace,
 } from "./types";
@@ -31,6 +32,10 @@ export function importWorkspace(path: string): Promise<Workspace> {
   });
 }
 
+export function createRemoteWorkspace(): Promise<Workspace> {
+  return request("/api/workspaces/remote", { method: "POST" });
+}
+
 export function updateQuestion(
   workspaceId: string,
   goal: string,
@@ -39,6 +44,38 @@ export function updateQuestion(
   return request(`/api/workspaces/${workspaceId}`, {
     method: "PATCH",
     body: JSON.stringify({ goal, reason }),
+  });
+}
+
+export function updateCompute(
+  workspaceId: string,
+  compute: Pick<
+    ComputeConfig,
+    | "kind"
+    | "name"
+    | "ssh_host"
+    | "project_path"
+    | "run_path"
+    | "setup_command"
+    | "gpu_devices"
+    | "max_parallel"
+  >,
+): Promise<Workspace> {
+  return request(`/api/workspaces/${workspaceId}/compute`, {
+    method: "PUT",
+    body: JSON.stringify(compute),
+  });
+}
+
+export function checkCompute(workspaceId: string): Promise<Workspace> {
+  return request(`/api/workspaces/${workspaceId}/compute/check`, {
+    method: "POST",
+  });
+}
+
+export function resetCompute(workspaceId: string): Promise<Workspace> {
+  return request(`/api/workspaces/${workspaceId}/compute/reset`, {
+    method: "POST",
   });
 }
 

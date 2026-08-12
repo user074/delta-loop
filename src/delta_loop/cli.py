@@ -41,6 +41,116 @@ def main() -> None:
     context_parser.add_argument("--node")
     context_parser.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
 
+    project_parser = subparsers.add_parser(
+        "project", help="Finish the initial setup of an existing research project"
+    )
+    project_subparsers = project_parser.add_subparsers(
+        dest="project_command", required=True
+    )
+    project_finish = project_subparsers.add_parser(
+        "finish-setup",
+        help="Create the initial STATE.md after the researcher approves the setup",
+    )
+    project_finish.add_argument("--summary", required=True)
+    project_finish.add_argument("--reference", action="append", default=[])
+    project_finish.add_argument("--constraint", action="append", default=[])
+    project_finish.add_argument("--workspace")
+    project_finish.add_argument(
+        "--url",
+        default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+    )
+    project_inspect = project_subparsers.add_parser(
+        "inspect-remote",
+        help="Read a bounded set of project files from an existing SSH server",
+    )
+    project_inspect.add_argument("--host", required=True, dest="ssh_host")
+    project_inspect.add_argument("--project", required=True, dest="project_path")
+    project_inspect.add_argument("--json", action="store_true", dest="as_json")
+    project_inspect.add_argument("--workspace")
+    project_inspect.add_argument(
+        "--url",
+        default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+    )
+
+    compute_parser = subparsers.add_parser(
+        "compute", help="Read, change, or check where research work runs"
+    )
+    compute_subparsers = compute_parser.add_subparsers(
+        dest="compute_command", required=True
+    )
+    compute_show = compute_subparsers.add_parser(
+        "show", help="Show where work runs and the current connection status"
+    )
+    compute_show.add_argument("--json", action="store_true", dest="as_json")
+    compute_set = compute_subparsers.add_parser(
+        "set", help="Use this computer or an SSH server"
+    )
+    compute_set.add_argument("--kind", choices=["local", "ssh"])
+    compute_set.add_argument("--name")
+    compute_set.add_argument("--host", dest="ssh_host")
+    compute_set.add_argument("--project", dest="project_path")
+    compute_set.add_argument("--runs", dest="run_path")
+    compute_set.add_argument("--setup", dest="setup_command")
+    compute_set.add_argument("--gpus", dest="gpu_devices")
+    compute_set.add_argument("--max-parallel", type=int, dest="max_parallel")
+    compute_check = compute_subparsers.add_parser(
+        "check", help="Test the saved location without starting research work"
+    )
+    compute_reset = compute_subparsers.add_parser(
+        "reset", help="Clear the saved location and its inspection"
+    )
+    compute_inspect = compute_subparsers.add_parser(
+        "inspect",
+        help="Read basic remote environment facts before discussing and saving settings",
+    )
+    compute_inspect.add_argument(
+        "--local",
+        action="store_true",
+        help="Inspect this computer and the local research project",
+    )
+    compute_inspect.add_argument("--host", dest="ssh_host")
+    compute_inspect.add_argument("--project", dest="project_path")
+    compute_inspect.add_argument("--runs", dest="run_path")
+    compute_inspect.add_argument("--json", action="store_true", dest="as_json")
+    for item in (compute_show, compute_set, compute_check, compute_reset, compute_inspect):
+        item.add_argument("--workspace")
+        item.add_argument(
+            "--url",
+            default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+        )
+
+    work_parser = subparsers.add_parser(
+        "work", help="Start and follow a bounded research run through Delta Loop"
+    )
+    work_subparsers = work_parser.add_subparsers(dest="work_command", required=True)
+    work_show = work_subparsers.add_parser(
+        "show", help="Show recent work and where it ran"
+    )
+    work_show.add_argument("--json", action="store_true", dest="as_json")
+    work_start = work_subparsers.add_parser(
+        "start", help="Seal one plan and start it at the saved compute location"
+    )
+    work_start.add_argument("--approach", required=True, dest="approach_id")
+    work_start.add_argument("--title", required=True)
+    work_start.add_argument("--goal", required=True)
+    work_start.add_argument("--steps", required=True, dest="instructions")
+    work_start.add_argument("--measure", required=True)
+    work_start.add_argument("--command", required=True)
+    work_start.add_argument("--data", default="", dest="inputs")
+    work_start.add_argument("--comparison", default="")
+    work_start.add_argument("--expected", default="")
+    work_start.add_argument("--limits", default="")
+    work_start.add_argument("--do-not-change", default="", dest="do_not_change")
+    work_start.add_argument("--budget", default="Small")
+    work_cancel = work_subparsers.add_parser("cancel", help="Stop a running job")
+    work_cancel.add_argument("run_id")
+    for item in (work_show, work_start, work_cancel):
+        item.add_argument("--workspace")
+        item.add_argument(
+            "--url",
+            default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+        )
+
     policy_parser = subparsers.add_parser("policy", help="Read or update policy for the selected idea")
     policy_subparsers = policy_parser.add_subparsers(dest="policy_command", required=True)
     policy_show = policy_subparsers.add_parser("show", help="Show policy for the selected idea")
@@ -153,6 +263,81 @@ def main() -> None:
 
     if args.command == "context":
         _show_context(args.url, args.workspace, args.node, args.as_json)
+        return
+
+    if args.command == "project":
+        if args.project_command == "inspect-remote":
+            _inspect_remote_project(
+                args.url,
+                args.workspace,
+                args.ssh_host,
+                args.project_path,
+                args.as_json,
+            )
+        else:
+            _finish_project_setup(
+                args.url,
+                args.workspace,
+                args.summary,
+                args.reference,
+                args.constraint,
+            )
+        return
+
+    if args.command == "compute":
+        if args.compute_command == "show":
+            _show_compute(args.url, args.workspace, args.as_json)
+        elif args.compute_command == "set":
+            _set_compute(
+                args.url,
+                args.workspace,
+                args.kind,
+                args.name,
+                args.ssh_host,
+                args.project_path,
+                args.run_path,
+                args.setup_command,
+                args.gpu_devices,
+                args.max_parallel,
+            )
+        elif args.compute_command == "check":
+            _check_compute(args.url, args.workspace)
+        elif args.compute_command == "inspect":
+            _inspect_compute(
+                args.url,
+                args.workspace,
+                args.local,
+                args.ssh_host,
+                args.project_path,
+                args.run_path,
+                args.as_json,
+            )
+        else:
+            _reset_compute(args.url, args.workspace)
+        return
+
+    if args.command == "work":
+        if args.work_command == "show":
+            _show_work(args.url, args.workspace, args.as_json)
+        elif args.work_command == "start":
+            _start_work(
+                args.url,
+                args.workspace,
+                args.approach_id,
+                args.title,
+                args.goal,
+                args.instructions,
+                args.measure,
+                args.command,
+                args.inputs,
+                args.comparison,
+                args.expected,
+                args.limits,
+                args.do_not_change,
+                args.budget,
+            )
+        else:
+            _cancel_work(args.url, args.workspace, args.run_id)
         return
 
     if args.command == "policy":
@@ -301,7 +486,7 @@ def _api_json(base_url: str, path: str, method: str = "GET", payload: dict | Non
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         try:
@@ -317,7 +502,7 @@ def _api_json_through_codex_proxy(full_url: str, method: str, data: bytes | None
     proxy = urllib.parse.urlparse(os.environ["HTTP_PROXY"])
     if proxy.scheme != "http" or not proxy.hostname:
         raise SystemExit("The agent's local connection is not configured correctly.")
-    connection = http.client.HTTPConnection(proxy.hostname, proxy.port or 80, timeout=10)
+    connection = http.client.HTTPConnection(proxy.hostname, proxy.port or 80, timeout=30)
     try:
         connection.request(
             method,
@@ -357,6 +542,7 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
     context = {
         "main_question": workspace["goal"],
         "selected": node,
+        "compute": workspace.get("compute"),
         "research_loop_instructions": workspace.get("loop_file"),
         "base_harness": workspace.get("harness"),
         "recent_work": [
@@ -375,6 +561,19 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
         print(json.dumps(context, indent=2))
         return
     print(f"Main question: {context['main_question']}")
+    if workspace.get("setup_status") == "needs-setup":
+        print("Project setup: incomplete — agree on the question and idea map before research starts")
+    compute = context["compute"] or {}
+    if not compute.get("configured"):
+        print("Work runs on: not set up")
+    elif compute.get("kind") == "ssh":
+        print(
+            f"Work runs on: {compute.get('name') or compute.get('ssh_host')} "
+            f"over SSH ({compute.get('status', 'unchecked')})"
+        )
+        print(f"Remote project: {compute.get('project_path')}")
+    else:
+        print("Work runs on: this computer")
     if context["research_loop_instructions"]:
         print(f"Complete research loop: {context['research_loop_instructions']}")
     if node:
@@ -385,6 +584,369 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
             print(f"Stop and ask before: {node['ask_before'] or 'No extra boundary recorded.'}")
     else:
         print("No idea is selected for this terminal.")
+
+
+def _show_compute(base_url: str, workspace_id: str | None, as_json: bool) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    compute = _workspace(base_url, workspace_id).get("compute", {})
+    if as_json:
+        print(json.dumps(compute, indent=2))
+        return
+    if not compute.get("configured"):
+        print("No compute location is set up. Choose this computer or a remote server.")
+        return
+    if compute.get("kind") == "ssh":
+        print(f"Work runs on: {compute.get('name') or compute.get('ssh_host')}")
+        print(f"SSH host: {compute.get('ssh_host')}")
+        print(f"Remote project: {compute.get('project_path')}")
+        print(f"Remote run records: {compute.get('run_path')}")
+        print(f"Environment setup: {compute.get('setup_command') or 'None'}")
+        print(f"GPU(s): {compute.get('gpu_devices') or 'No restriction'}")
+    else:
+        print("Work runs on: this computer")
+    print(f"At most {compute.get('max_parallel', 1)} run(s) at once")
+    print(f"Connection: {compute.get('status', 'unchecked')}")
+    print(compute.get("status_message") or "Not checked yet.")
+
+
+def _finish_project_setup(
+    base_url: str,
+    workspace_id: str | None,
+    summary: str,
+    references: list[str],
+    constraints: list[str],
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    updated = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/setup/complete",
+        method="POST",
+        payload={
+            "summary": summary,
+            "reference_repos": references,
+            "constraints": constraints,
+        },
+    )
+    print(f"Project setup complete: {updated['name']}")
+    print(f"Main question: {updated['goal']}")
+    print(f"Created: {updated['root']}/STATE.md")
+    print("Compute remains separate; use the Compute page before starting research work.")
+
+
+def _inspect_remote_project(
+    base_url: str,
+    workspace_id: str | None,
+    ssh_host: str,
+    project_path: str,
+    as_json: bool,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    inspection = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/setup/inspect-remote",
+        method="POST",
+        payload={"ssh_host": ssh_host, "project_path": project_path},
+    )
+    if as_json:
+        print(json.dumps(inspection, indent=2))
+        return
+    print(
+        f"Remote project: {inspection['project_path']} "
+        f"({'found' if inspection['project_exists'] else 'missing'})"
+    )
+    if inspection["top_level_files"]:
+        print("Project files (bounded to two levels):")
+        for name in inspection["top_level_files"]:
+            print(f"- {name}")
+    for name, content in inspection["documentation"].items():
+        print(f"\n--- {name} (bounded excerpt) ---")
+        print(content.rstrip())
+    if inspection["git_branch"] or inspection["git_remote"]:
+        print(
+            f"\nGit: branch {inspection['git_branch'] or 'unknown'} · "
+            f"origin {inspection['git_remote'] or 'not set'}"
+        )
+    if inspection["git_status"]:
+        print("Changed paths (at most 60):")
+        for line in inspection["git_status"]:
+            print(f"- {line}")
+    if inspection["recent_commits"]:
+        print("Recent commits:")
+        for line in inspection["recent_commits"]:
+            print(f"- {line}")
+
+
+def _set_compute(
+    base_url: str,
+    workspace_id: str | None,
+    kind: str | None,
+    name: str | None,
+    ssh_host: str | None,
+    project_path: str | None,
+    run_path: str | None,
+    setup_command: str | None,
+    gpu_devices: str | None,
+    max_parallel: int | None,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace = _workspace(base_url, workspace_id)
+    current = workspace.get("compute", {})
+    changes = {
+        key: value
+        for key, value in {
+            "kind": kind,
+            "name": name,
+            "ssh_host": ssh_host,
+            "project_path": project_path,
+            "run_path": run_path,
+            "setup_command": setup_command,
+            "gpu_devices": gpu_devices,
+            "max_parallel": max_parallel,
+        }.items()
+        if value is not None
+    }
+    if not changes:
+        raise SystemExit("Nothing changed. Add --kind or one of the compute settings.")
+    fields = [
+        "kind",
+        "name",
+        "ssh_host",
+        "project_path",
+        "run_path",
+        "setup_command",
+        "gpu_devices",
+        "max_parallel",
+    ]
+    payload = {field: current.get(field) for field in fields}
+    payload.update(changes)
+    if kind == "local" and name is None:
+        payload["name"] = "This computer"
+    if kind == "ssh" and name is None and current.get("kind") != "ssh":
+        payload["name"] = ssh_host or "Remote server"
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    updated = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/compute",
+        method="PUT",
+        payload=payload,
+    )
+    compute = updated["compute"]
+    print(
+        "Saved remote compute settings. Run `delta compute check` before starting work."
+        if compute["kind"] == "ssh"
+        else "Research work will run on this computer."
+    )
+
+
+def _check_compute(base_url: str, workspace_id: str | None) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    updated = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/compute/check",
+        method="POST",
+    )
+    compute = updated["compute"]
+    print(f"Connection: {compute['status']}")
+    print(compute["status_message"])
+    if compute.get("detected_python"):
+        print(f"Python: {compute['detected_python']}")
+    if compute.get("detected_gpus"):
+        print("GPU(s):")
+        for gpu in compute["detected_gpus"]:
+            print(f"- {gpu}")
+
+
+def _reset_compute(base_url: str, workspace_id: str | None) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/compute/reset",
+        method="POST",
+    )
+    print("Compute setup reset. Run history and research files were not changed.")
+
+
+def _inspect_compute(
+    base_url: str,
+    workspace_id: str | None,
+    local: bool,
+    ssh_host: str | None,
+    project_path: str | None,
+    run_path: str | None,
+    as_json: bool,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    payload = {
+        key: value
+        for key, value in {
+            "ssh_host": ssh_host,
+            "project_path": project_path,
+            "run_path": run_path,
+        }.items()
+        if value is not None
+    }
+    payload["kind"] = "local" if local else "ssh"
+    inspection = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/compute/inspect",
+        method="POST",
+        payload=payload,
+    )
+    if as_json:
+        print(json.dumps(inspection, indent=2))
+        return
+    print("Detected facts (read-only inspection):")
+    print(f"- Host: {inspection['hostname'] or inspection['host']} · {inspection['operating_system'] or 'OS unknown'}")
+    print(
+        f"- Project: {inspection['project_path']} "
+        f"({'found' if inspection['project_exists'] else 'missing'}, "
+        f"{'writable' if inspection['project_writable'] else 'not writable'})"
+    )
+    print(f"- Run path: {inspection['run_path']} · parent {'writable' if inspection['run_parent_writable'] else 'not writable'}")
+    print(f"- Scheduler: {inspection['scheduler']}")
+    print(f"- Python now: {inspection['python_path'] or 'not found'} {inspection['python_version']}")
+    print(f"- CPU: {inspection['cpu'] or 'not detected'} · Memory: {inspection['memory'] or 'not detected'}")
+    print(f"- GPU(s): {len(inspection['gpus']) if inspection['gpus'] else 'none visible'}")
+    for gpu in inspection["gpus"]:
+        print(f"  - {gpu}")
+    print(f"- Existing INFRA.md: {'yes' if inspection['has_infra'] else 'no'}")
+    if inspection["dependency_files"]:
+        print(f"- Environment files: {', '.join(inspection['dependency_files'])}")
+    if inspection["environment_tools"]:
+        print(f"- Environment tools: {', '.join(inspection['environment_tools'])}")
+    if inspection["environment_candidates"]:
+        print("- Possible environments (not selected yet):")
+        for candidate in inspection["environment_candidates"]:
+            print(f"  - {candidate}")
+    if inspection["git_branch"] or inspection["git_remote"]:
+        print(
+            f"- Git: branch {inspection['git_branch'] or 'unknown'} · "
+            f"{inspection['git_status'] or 'status unknown'} · "
+            f"origin {inspection['git_remote'] or 'not set'}"
+        )
+    for note in inspection["notes"]:
+        print(f"- Note: {note}")
+    print("\nHuman confirmation still needed:")
+    print("- Which environment and exact setup command should runs use?")
+    print("- Which GPUs and how many simultaneous runs are allowed?")
+    print("- Where should datasets, checkpoints, scratch files, and caches go?")
+    print("- Are there login-node, Git, data, or lab rules that commands cannot reveal?")
+    print("Do not install, move, or start anything until those choices are confirmed.")
+
+
+def _show_work(base_url: str, workspace_id: str | None, as_json: bool) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace = _workspace(base_url, workspace_id)
+    plans = {plan["id"]: plan for plan in workspace.get("packages", [])}
+    attempts = list(reversed(workspace.get("attempts", [])))
+    if as_json:
+        print(json.dumps(attempts, indent=2))
+        return
+    if not attempts:
+        print("No research work has been started through Delta Loop yet.")
+        return
+    for attempt in attempts[:10]:
+        plan = plans.get(attempt["package_id"], {})
+        location = (
+            f"{attempt.get('compute_name')} over SSH ({attempt.get('remote_host')})"
+            if attempt.get("executor") == "ssh"
+            else "this computer"
+        )
+        output = (
+            attempt.get("remote_output_directory")
+            if attempt.get("executor") == "ssh"
+            else attempt.get("output_directory")
+        )
+        print(f"{attempt['id']} · {attempt['status']} · {plan.get('title', 'Research work')}")
+        print(f"  Ran on: {location}")
+        if output:
+            print(f"  Output: {output}")
+        if attempt.get("output"):
+            print(f"  Latest: {attempt['output'][-1]}")
+        if attempt.get("error"):
+            print(f"  Problem: {attempt['error']}")
+
+
+def _start_work(
+    base_url: str,
+    workspace_id: str | None,
+    approach_id: str,
+    title: str,
+    goal: str,
+    instructions: str,
+    measure: str,
+    command: str,
+    inputs: str,
+    comparison: str,
+    expected: str,
+    limits: str,
+    do_not_change: str,
+    budget: str,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    before = _workspace(base_url, workspace_id)
+    known = {plan["id"] for plan in before.get("packages", [])}
+    created = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/plans",
+        method="POST",
+        payload={"approach_id": approach_id, "title": title},
+    )
+    plan = next(plan for plan in created["packages"] if plan["id"] not in known)
+    plan_path = urllib.parse.quote(plan["id"], safe="")
+    _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/plans/{plan_path}",
+        method="PATCH",
+        payload={
+            "goal": goal,
+            "instructions": instructions,
+            "inputs": inputs,
+            "comparison": comparison,
+            "measure": measure,
+            "expected": expected,
+            "limits": limits,
+            "do_not_change": do_not_change,
+            "command": command,
+            "budget": budget,
+        },
+    )
+    _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/plans/{plan_path}/approve",
+        method="POST",
+    )
+    started = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/plans/{plan_path}/run",
+        method="POST",
+    )
+    attempt = started["attempts"][-1]
+    location = (
+        f"{attempt['compute_name']} over SSH"
+        if attempt["executor"] == "ssh"
+        else "this computer"
+    )
+    print(f"Started {attempt['id']} on {location}.")
+    print("Use `delta work show` to follow it.")
+
+
+def _cancel_work(base_url: str, workspace_id: str | None, run_id: str) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    run_path = urllib.parse.quote(run_id, safe="")
+    _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/runs/{run_path}/cancel",
+        method="POST",
+    )
+    print(f"Stopped {run_id}.")
 
 
 def _show_policy(base_url: str, workspace_id: str | None, node_id: str | None) -> None:

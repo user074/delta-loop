@@ -1,8 +1,6 @@
 from pathlib import Path
 
-import pytest
-
-from delta_loop.importer import ImportFailure, import_workspace
+from delta_loop.importer import import_workspace
 
 
 STATE = """# STATE — demo
@@ -49,6 +47,13 @@ def test_import_workspace_normalizes_delta_state(tmp_path: Path) -> None:
     assert result.scratch == ["Check matched magnitude before scaling up"]
 
 
-def test_import_workspace_requires_state_file(tmp_path: Path) -> None:
-    with pytest.raises(ImportFailure, match="No STATE.md"):
-        import_workspace(tmp_path)
+def test_import_workspace_without_state_starts_codex_setup(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# Existing research code\n", encoding="utf-8")
+
+    result = import_workspace(tmp_path)
+
+    assert result.setup_status == "needs-setup"
+    assert result.goal == "Research question not set up yet"
+    assert result.status == "setup"
+    assert result.source_files == ["README.md"]
+    assert [node.kind for node in result.nodes] == ["question"]

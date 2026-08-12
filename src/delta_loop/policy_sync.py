@@ -53,6 +53,19 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
     )
     timestamp = synced_at or now_iso()
     version_number = active.version if active else 0
+    compute = workspace.compute
+    compute_location = (
+        "Not configured"
+        if not compute.configured
+        else f"SSH server {compute.name or compute.ssh_host} ({compute.ssh_host})"
+        if compute.kind == "ssh"
+        else "This computer"
+    )
+    compute_project = (
+        "Not configured"
+        if not compute.configured
+        else compute.project_path if compute.kind == "ssh" else workspace.root
+    )
     lines = [
         "# Active Delta Loop Policy",
         "",
@@ -61,6 +74,8 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         f"- **Project:** {_line(workspace.name)}",
         f"- **Main question:** {_line(workspace.goal)}",
         f"- **Policy version:** {version_number}",
+        f"- **Compute location:** {_line(compute_location)}",
+        f"- **Compute project:** {_line(compute_project)}",
         f"- **Written:** {timestamp}",
         "",
         "## How to use this policy",
@@ -73,6 +88,7 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         "6. Copy the applicable rule IDs and matched idea policy into `PLAN.md` before preserving `PLAN.initial.md` and starting a worker. That policy copy cannot change during the run.",
         "7. If a matching rule or `Ask before` field requires human input, stop before planning or starting that action.",
         "8. A rule for one idea may narrow the general policy, but it cannot override a required rule.",
+        "9. Start approved work through Delta Loop so it uses the saved compute location; do not silently move work to another machine.",
         "",
         "## Enabled general rules",
     ]
@@ -165,6 +181,19 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
     other_rules = [rule for rule in enabled if rule.category != "loop"]
     shared_rules = [rule for rule in other_rules if not rule.loop_step_ids]
     version_number = active.version if active else 0
+    compute = workspace.compute
+    compute_location = (
+        "Not configured"
+        if not compute.configured
+        else f"SSH server {compute.name or compute.ssh_host} ({compute.ssh_host})"
+        if compute.kind == "ssh"
+        else "this computer"
+    )
+    compute_project = (
+        "Not configured"
+        if not compute.configured
+        else compute.project_path if compute.kind == "ssh" else workspace.root
+    )
 
     lines = [
         "# Delta Loop Research Instructions",
@@ -178,12 +207,15 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
         f"- **Policy version:** {version_number}",
         f"- **Written:** {timestamp}",
         f"- **Current idea policy:** {_line(str(policy))}",
+        f"- **Approved compute location:** {_line(compute_location)}",
+        f"- **Project path on that computer:** {_line(compute_project)}",
         "",
         "## Before starting",
         "",
         "1. Read this file and the current idea policy recorded above.",
         "2. Run `delta context` in a Delta Loop terminal to see the selected idea and current human choices.",
-        "3. If either generated file cannot be read, stop and report the blocker instead of guessing.",
+        "3. Run `delta compute show` before planning execution. If no location is configured, stop and ask the researcher to set one up.",
+        "4. If either generated file cannot be read, stop and report the blocker instead of guessing.",
         "",
         "## Research cycle",
         "",

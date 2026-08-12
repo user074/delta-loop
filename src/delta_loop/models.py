@@ -43,6 +43,10 @@ HarnessStatus = Literal[
     "unknown",
 ]
 TerminalKind = Literal["shell", "discussion", "research"]
+ComputeKind = Literal["local", "ssh"]
+ComputeStatus = Literal["unchecked", "ready", "unreachable", "needs-setup"]
+ProjectSetupStatus = Literal["needs-setup", "ready"]
+ProjectSource = Literal["local", "remote"]
 
 
 def now_iso() -> str:
@@ -173,6 +177,12 @@ class Attempt(BaseModel):
     exit_code: int | None = None
     output: list[str] = Field(default_factory=list)
     error: str | None = None
+    executor: ComputeKind = "local"
+    compute_name: str = "This computer"
+    remote_host: str = ""
+    remote_record_directory: str = ""
+    remote_output_directory: str = ""
+    last_checked_at: str = ""
 
 
 class ResultReview(BaseModel):
@@ -240,6 +250,108 @@ class TerminalSessionInfo(BaseModel):
     last_active_at: str = Field(default_factory=now_iso)
 
 
+class ComputeConfig(BaseModel):
+    configured: bool = False
+    kind: ComputeKind = "local"
+    name: str = "This computer"
+    ssh_host: str = ""
+    project_path: str = ""
+    run_path: str = "~/.delta-loop/runs"
+    setup_command: str = ""
+    gpu_devices: str = ""
+    max_parallel: int = Field(default=1, ge=1, le=16)
+    status: ComputeStatus = "unchecked"
+    status_message: str = "Choose this computer or a remote server before starting work."
+    last_checked_at: str = ""
+    detected_python: str = ""
+    detected_git: str = ""
+    detected_gpus: list[str] = Field(default_factory=list)
+
+
+class ComputeConfigRequest(BaseModel):
+    kind: ComputeKind
+    name: str = ""
+    ssh_host: str = ""
+    project_path: str = ""
+    run_path: str = "~/.delta-loop/runs"
+    setup_command: str = ""
+    gpu_devices: str = ""
+    max_parallel: int = Field(default=1, ge=1, le=16)
+
+
+class ComputeCheckResult(BaseModel):
+    status: ComputeStatus
+    message: str
+    host: str = ""
+    project_path: str = ""
+    run_path: str = ""
+    project_exists: bool = False
+    run_path_exists: bool = False
+    python: str = ""
+    git: str = ""
+    gpus: list[str] = Field(default_factory=list)
+    checked_at: str = Field(default_factory=now_iso)
+
+
+class ComputeInspectRequest(BaseModel):
+    kind: ComputeKind = "ssh"
+    ssh_host: str = ""
+    project_path: str = ""
+    run_path: str = "~/.delta-loop/runs"
+
+
+class ComputeInspection(BaseModel):
+    host: str
+    inspected_at: str = Field(default_factory=now_iso)
+    hostname: str = ""
+    operating_system: str = ""
+    shell: str = ""
+    home_path: str = ""
+    project_path: str = ""
+    project_exists: bool = False
+    project_writable: bool = False
+    run_path: str = ""
+    run_parent_writable: bool = False
+    top_level_files: list[str] = Field(default_factory=list)
+    has_readme: bool = False
+    has_state: bool = False
+    has_infra: bool = False
+    dependency_files: list[str] = Field(default_factory=list)
+    python_path: str = ""
+    python_version: str = ""
+    environment_tools: list[str] = Field(default_factory=list)
+    environment_candidates: list[str] = Field(default_factory=list)
+    scheduler: str = "none"
+    scheduler_tools: list[str] = Field(default_factory=list)
+    gpus: list[str] = Field(default_factory=list)
+    cpu: str = ""
+    memory: str = ""
+    project_storage: str = ""
+    home_storage: str = ""
+    git_branch: str = ""
+    git_remote: str = ""
+    git_status: str = ""
+    notes: list[str] = Field(default_factory=list)
+
+
+class RemoteProjectInspectRequest(BaseModel):
+    ssh_host: str
+    project_path: str
+
+
+class RemoteProjectInspection(BaseModel):
+    host: str
+    project_path: str
+    project_exists: bool = False
+    top_level_files: list[str] = Field(default_factory=list)
+    documentation: dict[str, str] = Field(default_factory=dict)
+    git_branch: str = ""
+    git_remote: str = ""
+    git_status: list[str] = Field(default_factory=list)
+    recent_commits: list[str] = Field(default_factory=list)
+    inspected_at: str = Field(default_factory=now_iso)
+
+
 class ProjectSnapshot(BaseModel):
     id: str
     root: str
@@ -269,10 +381,23 @@ class ProjectSnapshot(BaseModel):
     policy_synced_at: str = ""
     harness: HarnessInfo = Field(default_factory=HarnessInfo)
     question_history: list[QuestionRevision] = Field(default_factory=list)
+    compute: ComputeConfig = Field(default_factory=ComputeConfig)
+    compute_inspection: ComputeInspection | None = None
+    setup_status: ProjectSetupStatus = "ready"
+    setup_summary: str = ""
+    reference_repos: list[str] = Field(default_factory=list)
+    setup_constraints: list[str] = Field(default_factory=list)
+    project_source: ProjectSource = "local"
 
 
 class ImportRequest(BaseModel):
     path: str
+
+
+class ProjectSetupRequest(BaseModel):
+    summary: str
+    reference_repos: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
 
 
 class WorkspacePatch(BaseModel):

@@ -134,6 +134,64 @@ export interface Attempt {
   exit_code: number | null;
   output: string[];
   error: string | null;
+  executor: "local" | "ssh";
+  compute_name: string;
+  remote_host: string;
+  remote_record_directory: string;
+  remote_output_directory: string;
+  last_checked_at: string;
+}
+
+export interface ComputeConfig {
+  configured: boolean;
+  kind: "local" | "ssh";
+  name: string;
+  ssh_host: string;
+  project_path: string;
+  run_path: string;
+  setup_command: string;
+  gpu_devices: string;
+  max_parallel: number;
+  status: "unchecked" | "ready" | "unreachable" | "needs-setup";
+  status_message: string;
+  last_checked_at: string;
+  detected_python: string;
+  detected_git: string;
+  detected_gpus: string[];
+}
+
+export interface ComputeInspection {
+  host: string;
+  inspected_at: string;
+  hostname: string;
+  operating_system: string;
+  shell: string;
+  home_path: string;
+  project_path: string;
+  project_exists: boolean;
+  project_writable: boolean;
+  run_path: string;
+  run_parent_writable: boolean;
+  top_level_files: string[];
+  has_readme: boolean;
+  has_state: boolean;
+  has_infra: boolean;
+  dependency_files: string[];
+  python_path: string;
+  python_version: string;
+  environment_tools: string[];
+  environment_candidates: string[];
+  scheduler: string;
+  scheduler_tools: string[];
+  gpus: string[];
+  cpu: string;
+  memory: string;
+  project_storage: string;
+  home_storage: string;
+  git_branch: string;
+  git_remote: string;
+  git_status: string;
+  notes: string[];
 }
 
 export interface ResultReview {
@@ -190,7 +248,7 @@ export interface TerminalSessionInfo {
 export interface ResearchLaunchRequest {
   id: number;
   nodeId: string | null;
-  sourcePage: "home" | "research" | "policy";
+  sourcePage: "home" | "research" | "policy" | "compute";
 }
 
 export interface HarnessInfo {
@@ -236,4 +294,11 @@ export interface Workspace {
   policy_synced_at: string;
   harness: HarnessInfo;
   question_history: QuestionRevision[];
+  compute: ComputeConfig;
+  compute_inspection: ComputeInspection | null;
+  setup_status: "needs-setup" | "ready";
+  setup_summary: string;
+  reference_repos: string[];
+  setup_constraints: string[];
+  project_source: "local" | "remote";
 }

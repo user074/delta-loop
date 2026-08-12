@@ -63,6 +63,7 @@ This table is the product requirements document for the POC. A proposed feature 
 | Promise versus evidence | Confidence and frontier rank partially mix scientific support with what deserves attention next. | A weakly supported direction may still be promising; a well-supported result may have low priority. | Display three separate signals: activity status, human-rated promise/priority, and evidence strength. Never infer one from another. |
 | Review semantics | A report proposes a verdict and belief update. | Method validity, observed result, scientific interpretation, and code quality are different judgments. | Separate execution review, observation acceptance, interpretation, belief update, and optional code integration. |
 | Terminal workflow | The existing system works directly in the repository through agent tools and shell commands. | The terminal remains best for debugging, code inspection, commands, SLURM, and interactive collaboration, but it is visually disconnected from the research arc. | Make terminal sessions first-class and link them to directions, approaches, packages, and attempts. Clicking a node opens or reattaches its session; the same session can be attached from the browser or a local/VS Code terminal. |
+| Compute location | Research code may live on a workstation or a remote GPU server. `delta-research` records infrastructure and follows a probe-then-interview setup: commands reveal hardware and software facts, while the researcher supplies storage policy, appropriate resources, and cluster or lab conventions. | On a server without SLURM, the researcher wants Delta Loop to remain local while approved commands run remotely. The agent must not guess the host, project path, environment, GPUs, storage policy, or safe concurrency, and the researcher should not have to manually transcribe everything into a form. | Make agent-led setup the main path. Run one bounded read-only probe; show detected facts separately from human choices; ask one short round at a time about the environment, storage, GPU and concurrency limits, login-node restrictions, Git, data, and lab rules; save only after confirmation; then validate the exact setup. Freeze the chosen location into every attempt, launch a persistent remote process, reconnect to status and logs, and show the remote output path. Keep manual fields as an advanced fallback and never store SSH credentials. Provide a safe reset that clears the saved location and inspection while preserving research files, run history, and results. |
 | Web awareness | `loopit` shows live activity, state, next work, history, steering, and durable runtime records. | The awareness and observability are useful. Seeing what is happening and what comes next lowers uncertainty. | Reuse these interaction lessons in a smaller research dashboard: current package, current operation, latest evidence, next checkpoint, decisions needed, and resource use. |
 | Web conversation | `loopit` construction and understanding messages launch CLI processes and rehydrate saved context. | A sequence of non-interactive `exec` turns feels less natural than a persistent agent session and repeatedly pays context/setup cost. | Embed or attach a real persistent terminal session, not a chat form that launches a new process per message. The UI adds visual context and structured controls around that session. |
 | Loop verification | `loopit` can trace, rehearse, repair, and retest a loop using fresh agents. | The system may spend more tokens verifying that the loop works than producing the target project's native deliverables. | Use deterministic validation for schemas and invariants. Permit model-based review only for a named scientific or safety risk and only after real work exists to review. |
@@ -133,6 +134,7 @@ Workers own bounded execution:
 - A bounded worker launcher and observer
 - A progress and token-accounting experiment
 - A complete editable research loop that remains compatible with existing Delta scientific artifacts
+- A local control surface that can run bounded work on one saved SSH server without becoming a cluster scheduler
 
 ### The POC is not
 
@@ -147,6 +149,7 @@ Workers own bounded execution:
 - A full migration of every Delta Markdown file into a new database
 - A platform whose own tests and rehearsals count as research progress
 - A monolithic prompt whose behavior can only be evaluated by asking another agent for an opinion
+- A remote machine provisioner, data-sync system, credential store, or replacement for SLURM
 
 ## 5. Interaction architecture
 
@@ -160,13 +163,39 @@ flowchart TB
     T <--> S["Supervisor<br/>Codex / Claude / shell"]
     S -->|"propose structured diff"| K["Delta kernel + files"]
     UI -->|"edit, approve, seal, launch, review"| K
-    K -->|"sealed handoff"| W1["Bounded worker A"]
-    K -->|"sealed handoff"| W2["Bounded worker B"]
+    K -->|"sealed handoff"| R["Saved compute location<br/>local process or SSH server"]
+    R --> W1["Bounded worker A"]
+    R --> W2["Bounded worker B"]
     W1 -->|"events + result manifest"| K
     W2 -->|"events + result manifest"| K
     K --> UI
     K --> S
 ```
+
+The POC has one active compute location per project. Delta Loop stays local and uses the researcher's normal SSH
+configuration when that location is remote. Each attempt stores a copy of the host and paths it started with, so a
+later configuration change cannot make an existing job appear to move. Remote output stays remote and is referred
+to by its exact path; automatic dataset and artifact synchronization is outside the POC.
+
+Remote setup follows the same epistemic boundary as `delta-research` infrastructure initialization:
+
+1. **Probe facts once:** project presence and writability, repository state, environment candidates, Python,
+   scheduler commands, visible GPUs, CPU, memory, storage, and any existing `README.md`, `STATE.md`, or `INFRA.md`.
+2. **Interview for rules:** which environment is correct; where data, checkpoints, scratch, and caches belong; which
+   GPUs and concurrency are appropriate; and what login-node, Git, data, or lab conventions apply.
+3. **Confirm before mutation:** present the proposed compute settings and Delta Loop policy rules. Inspection never
+   installs packages, moves data, edits Git or `INFRA.md`, creates the project, or launches research.
+4. **Validate the agreed setup:** after confirmation, prove the project path and exact environment activation work.
+
+The agent must not turn this into open-ended server exploration. One deterministic inspection should answer the
+routine questions without consuming repeated agent turns; deeper investigation requires a specific problem or the
+researcher's request.
+
+When no project is open, the first choice is explicit: **this computer** or **remote server**. It is made in the UI
+before the Codex conversation starts. Local setup opens an existing folder. Remote setup creates only a local Delta
+Loop notes folder, asks for the existing SSH host and project path, and combines project understanding with compute
+setup. The remote repository does not need a local checkout or a pre-existing `STATE.md`, and it remains unchanged
+during onboarding. The agent does not spend a turn asking which of these two paths the researcher intended.
 
 ### The delta-research default
 
@@ -1252,7 +1281,7 @@ flowchart LR
 
 The POC must run against one real research repository and one real unresolved question. For example:
 
-1. Import an existing `delta-research` project and its historical runs.
+1. Open an existing research project. Import `STATE.md` and historical runs when present; otherwise use the Codex-led initialization conversation to understand the repository, agree on the question and initial ideas, and create the first state.
 2. Capture one lightweight lab note and convert it into the `C1 Exception` direction.
 3. Create two or more competing approaches and link them as alternatives.
 4. Record separate activity, promise, and evidence signals; explain why one approach is primary and another
