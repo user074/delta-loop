@@ -22,6 +22,7 @@ dev = [
 
 [project.scripts]
 delta = "delta_loop.cli:main"
+delta-loop = "delta_loop.cli:ui_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

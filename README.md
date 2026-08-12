@@ -4,6 +4,51 @@ Delta Loop imports the useful scientific cycle from `delta-research` and makes t
 versioned. It adds a visual idea map, persistent agent supervision, bounded handoffs, and clearer result review
 without replacing the terminal.
 
+![Delta Loop asking where an existing research project lives](docs/images/first-run.jpg)
+
+## Install and open
+
+You need Python 3.11 or newer. On macOS or Linux, copy and paste this once:
+
+```bash
+git clone --depth 1 https://github.com/user074/delta-loop.git ~/delta-loop && ~/delta-loop/install.sh
+```
+
+The installer prepares Delta Loop, adds the `delta-loop` command, starts the app, and opens it in your browser.
+There is no address to remember.
+
+If you already downloaded this repository, run:
+
+```bash
+./install.sh
+```
+
+Later, open Delta Loop with:
+
+```bash
+delta-loop
+```
+
+If your terminal does not find that short command, use `~/.local/bin/delta-loop`. Keep the terminal window open
+while using Delta Loop; press `Ctrl+C` there to stop it.
+
+To update later:
+
+```bash
+cd ~/delta-loop && git pull && ./install.sh
+```
+
+## First use
+
+Choose where your existing research code lives:
+
+- **This computer:** choose the project folder.
+- **Remote server:** chat with Codex, then give it the SSH name you already use and the project folder on that server.
+
+Codex reads a small, safe part of the project, explains what it found, and asks about the research question and
+rules it cannot infer. It does not install software, run experiments, or change the remote repository during this
+setup. You approve the proposed setup before Delta Loop saves it.
+
 ## What the POC can do
 
 - Open an existing research project on this computer or an SSH server; import its `STATE.md` when present, or let Codex set it up when no state exists
@@ -28,9 +73,10 @@ without replacing the terminal.
 - Open a real terminal tied to the selected idea; hiding the panel does not stop the process
 - Review whether a run followed the plan, whether the result is trustworthy, and what to do next
 
-Delta Loop stores its own history in `.delta-loop-data/`, which is ignored by Git. For a local project it generates
-two files inside the research project. For a remote project it keeps these files in a small local notes folder, so
-the repository on the server is not changed during setup:
+The installed app stores its own history in `~/.delta-loop/`. The developer version uses `.delta-loop-data/` in
+this repository. For a local project Delta Loop generates two files inside the research project. For a remote
+project it keeps these files in a small local notes folder, so the repository on the server is not changed during
+setup:
 
 - `.delta-loop/LOOP.md` is the complete active research loop used by the agent.
 - `.delta-loop/POLICY.md` contains the researcher's active project and idea-specific choices.
@@ -40,9 +86,9 @@ supervisor prompt at runtime. Its built-in research cycle was adapted from
 [user074/delta-research](https://github.com/user074/delta-research), but Delta Loop owns and runs the editable
 policy. A local checkout is optional and used only when explicitly comparing upstream changes.
 
-## Run locally
+## Developer setup
 
-You need Python 3.11 or newer and Node.js 20 or newer.
+Normal users should use `./install.sh` above. Changing Delta Loop itself also requires Node.js 20 or newer:
 
 ```bash
 python3 -m venv .venv
@@ -52,7 +98,8 @@ npm --prefix web install
 ./scripts/dev.sh
 ```
 
-Then open `http://127.0.0.1:4317`. The API runs on `http://127.0.0.1:4318`.
+The development command prints its local address. Unlike the installed `delta-loop` command, it keeps the UI and
+API in separate development processes so browser changes can reload immediately.
 
 If you hide the terminal in the web page, it keeps running. You can show it again in the page or attach
 from another local terminal:

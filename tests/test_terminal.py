@@ -107,3 +107,19 @@ def test_default_agent_can_only_reach_delta_loop() -> None:
     assert "features.network_proxy.allow_local_binding=true" in DEFAULT_AGENT_COMMAND
     assert 'domains={ "127.0.0.1" = "allow" }' in DEFAULT_AGENT_COMMAND
     assert "danger-full-access" not in DEFAULT_AGENT_COMMAND
+
+
+def test_installed_terminal_uses_the_single_app_address(tmp_path: Path) -> None:
+    manager = TerminalManager(api_url="http://127.0.0.1:4321")
+    session = manager.create("workspace", str(tmp_path), None)
+    manager.write(session.id, b"printf 'api=%s\\n' \"$DELTA_LOOP_API_URL\"\n")
+
+    output = b""
+    for _ in range(60):
+        output += manager.read(session.id)
+        if b"api=http://127.0.0.1:4321" in output:
+            break
+        time.sleep(0.05)
+
+    assert b"api=http://127.0.0.1:4321" in output
+    manager.close(session.id)

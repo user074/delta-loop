@@ -564,3 +564,26 @@ def test_starting_research_reuses_the_active_supervisor(tmp_path: Path, monkeypa
     assert first["kind"] == "research"
     assert first["node_id"] == focus["id"]
     assert second["id"] == first["id"]
+
+
+def test_installed_app_serves_web_ui_and_api_from_one_port(tmp_path: Path) -> None:
+    web_dist = tmp_path / "web"
+    web_dist.mkdir()
+    (web_dist / "index.html").write_text(
+        "<!doctype html><title>Installed Delta Loop</title>",
+        encoding="utf-8",
+    )
+    app = create_app(
+        tmp_path / "workspaces.json",
+        serve_web=True,
+        api_url="http://127.0.0.1:4321",
+        web_dist=web_dist,
+    )
+
+    with TestClient(app) as client:
+        page = client.get("/")
+        health = client.get("/api/health")
+
+    assert page.status_code == 200
+    assert "Installed Delta Loop" in page.text
+    assert health.json() == {"status": "ok"}
