@@ -264,6 +264,21 @@ def test_plan_run_and_review_flow(tmp_path: Path) -> None:
         assert approved["packages"][0]["status"] == "ready"
         assert approved["packages"][0]["rules_version_id"] == "rules-v1"
 
+        configured = client.put(
+            f"/api/workspaces/{workspace_id}/compute",
+            json={
+                "kind": "local",
+                "name": "This computer",
+                "ssh_host": "",
+                "project_path": "",
+                "run_path": "~/.delta-loop/runs",
+                "setup_command": "",
+                "gpu_devices": "",
+                "max_parallel": 1,
+            },
+        )
+        assert configured.status_code == 200
+
         started = client.post(
             f"/api/workspaces/{workspace_id}/plans/{plan['id']}/run"
         ).json()

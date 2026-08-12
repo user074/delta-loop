@@ -9,9 +9,20 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .compute import (
+    ComputeFailure,
+    check_compute,
+    inspect_local_compute,
+    inspect_remote_compute,
+    validate_compute,
+)
 from .harness import HarnessFailure, inspect_harness, update_harness
 from .importer import ImportFailure, import_workspace
 from .models import (
+    ComputeConfig,
+    ComputeConfigRequest,
+    ComputeInspectRequest,
+    ComputeInspection,
     HarnessInfo,
     ImportRequest,
     NodePatch,
@@ -132,6 +143,8 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         workspace = store.get(workspace_id)
         if not workspace:
             raise HTTPException(status_code=404, detail="Project not found.")
+        runner.refresh(workspace_id)
+        workspace = store.get(workspace_id) or workspace
         if ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
             save_with_policy(workspace)
         return workspace
@@ -148,9 +161,11 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
     def list_workspaces() -> list[ProjectSnapshot]:
         workspaces = store.list()
         for workspace in workspaces:
+            runner.refresh(workspace.id)
+            workspace = store.get(workspace.id) or workspace
             if ensure_current_rules(workspace) or refresh_harness(workspace) or policy_file_missing(workspace):
                 save_with_policy(workspace)
-        return workspaces
+        return store.list()
 
     @app.get("/api/workspaces/{workspace_id}", response_model=ProjectSnapshot)
     def get_workspace(workspace_id: str) -> ProjectSnapshot:
@@ -172,6 +187,122 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
         question = next((node for node in workspace.nodes if node.kind == "question"), None)
         if question:
             question.title = goal
+        return save_with_policy(workspace)
+
+    @app.put("/api/workspaces/{workspace_id}/compute", response_model=ProjectSnapshot)
+    def update_compute(
+        workspace_id: str, request: ComputeConfigRequest
+    ) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        values = request.model_dump()
+        if not values["name"].strip():
+            values["name"] = (
+                "This computer" if request.kind == "local" else request.ssh_host
+            )
+        config = ComputeConfig(**values, configured=True)
+        try:
+            validate_compute(config)
+        except ComputeFailure as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if config.kind == "local":
+            config.status = "ready"
+            config.status_message = "Runs use the local research project."
+        else:
+            config.status = "unchecked"
+            config.status_message = "Save these settings, then check the connection."
+        inspection = workspace.compute_inspection
+        def same_remote_path(configured: str, resolved: str, home: str) -> bool:
+            if configured == resolved:
+                return True
+            if configured.startswith("~/") and home:
+                return f"{home.rstrip('/')}/{configured[2:]}" == resolved
+            return False
+        if inspection:
+            if config.kind == "local":
+                if inspection.host != "this-computer":
+                    workspace.compute_inspection = None
+            elif (
+                inspection.host != config.ssh_host
+                or not same_remote_path(
+                    config.project_path, inspection.project_path, inspection.home_path
+                )
+                or not same_remote_path(
+                    config.run_path, inspection.run_path, inspection.home_path
+                )
+            ):
+                workspace.compute_inspection = None
+        workspace.compute = config
+        workspace.last_updated = now_iso()
+        return save_with_policy(workspace)
+
+    @app.post(
+        "/api/workspaces/{workspace_id}/compute/reset",
+        response_model=ProjectSnapshot,
+    )
+    def reset_workspace_compute(workspace_id: str) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        workspace.compute = ComputeConfig()
+        workspace.compute_inspection = None
+        workspace.last_updated = now_iso()
+        return save_with_policy(workspace)
+
+    @app.post(
+        "/api/workspaces/{workspace_id}/compute/inspect",
+        response_model=ComputeInspection,
+    )
+    def inspect_workspace_compute(
+        workspace_id: str, request: ComputeInspectRequest
+    ) -> ComputeInspection:
+        workspace = workspace_or_404(workspace_id)
+        if request.kind == "local":
+            inspection = inspect_local_compute(
+                workspace.root,
+                str(store.path.parent / "runs"),
+            )
+            workspace.compute_inspection = inspection
+            store.save(workspace)
+            return inspection
+        host = request.ssh_host.strip()
+        project_path = request.project_path.strip()
+        run_path = request.run_path.strip() or "~/.delta-loop/runs"
+        if not host and workspace.compute.kind == "ssh":
+            host = workspace.compute.ssh_host
+        if not project_path and workspace.compute.kind == "ssh":
+            project_path = workspace.compute.project_path
+        if request.run_path == "~/.delta-loop/runs" and workspace.compute.kind == "ssh":
+            run_path = workspace.compute.run_path
+        if not host or not project_path:
+            raise HTTPException(
+                status_code=422,
+                detail="Give Codex the SSH host and remote project folder before inspecting the server.",
+            )
+        try:
+            inspection = inspect_remote_compute(host, project_path, run_path)
+        except ComputeFailure as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        workspace.compute_inspection = inspection
+        store.save(workspace)
+        return inspection
+
+    @app.post(
+        "/api/workspaces/{workspace_id}/compute/check",
+        response_model=ProjectSnapshot,
+    )
+    def check_workspace_compute(workspace_id: str) -> ProjectSnapshot:
+        workspace = workspace_or_404(workspace_id)
+        if not workspace.compute.configured:
+            raise HTTPException(
+                status_code=422,
+                detail="Choose and save this computer or a remote server before checking it.",
+            )
+        result = check_compute(workspace.compute, workspace.root)
+        workspace.compute.status = result.status
+        workspace.compute.status_message = result.message
+        workspace.compute.last_checked_at = result.checked_at
+        workspace.compute.detected_python = result.python
+        workspace.compute.detected_git = result.git
+        workspace.compute.detected_gpus = result.gpus
+        workspace.last_updated = now_iso()
         return save_with_policy(workspace)
 
     @app.post("/api/workspaces/import", response_model=ProjectSnapshot)

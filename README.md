@@ -20,7 +20,10 @@ without replacing the terminal.
 - Set shared checks, temporary limits, and special rules for particular ideas
 - Start a focused agent chat from configuration that needs discussion; simple choices stay directly editable
 - Run an approved local command and keep its hidden detailed plan, output, and review together
-- Run up to two independent approved plans at the same time
+- Choose whether research commands run locally or on one remote server through the user's existing SSH setup
+- Check the remote project, Python, Git, and GPUs without starting research work
+- Keep remote jobs running when the browser closes, reconnect to their status and recent logs, and show exactly where large output remains
+- Limit how many independent approved plans may run at the same time
 - Change the agent rules safely through checked, reversible versions
 - Open a real terminal tied to the selected idea; hiding the panel does not stop the process
 - Review whether a run followed the plan, whether the result is trustworthy, and what to do next
@@ -64,6 +67,14 @@ in the UI:
 
 ```bash
 delta context
+delta compute show
+delta compute inspect --local
+delta compute inspect --host lab-gpu --project ~/projects/my-research
+delta compute set --kind ssh --name "Lab GPU server" --host lab-gpu --project ~/projects/my-research --runs ~/.delta-loop/runs --setup "source .venv/bin/activate" --gpus 0 --max-parallel 1
+delta compute check
+delta work start --approach APPROACH_ID --title "Small comparison" --goal "Test the smallest useful difference" --steps "Run the matched comparison once" --measure "Difference in the primary metric" --command "python experiments/quick_test.py --output {output_dir}"
+delta work show
+delta work cancel RUN_ID
 delta policy show
 delta policy set --kind quick-test --guidance "Run the matched comparison first."
 delta question set "Updated research question" --reason "The recent result narrowed the scope."
@@ -79,6 +90,31 @@ delta rules apply UPDATED_RULES.json
 delta harness show
 delta harness update
 ```
+
+## Run research work on a remote server
+
+Delta Loop itself stays on your computer. Its web page, terminal, research map, and policy files remain local. The
+Compute page can send only approved research runs to one server over SSH. It uses the same host or alias that works
+with `ssh HOST` in your terminal, so Delta Loop never stores SSH passwords or private keys.
+
+For each remote run, Delta Loop copies the sealed plan to the configured run-record folder, starts the command as a
+background process, and reads its status and recent log over SSH. The job continues if the browser or Delta Loop is
+closed. Large artifacts remain in the remote output folder shown on the Compute page; Delta Loop does not copy them
+back automatically.
+
+The **Set up with Codex** panel first asks whether work should run on this computer or a remote server, so the agent
+starts with the right setup process. The local path inspects the current project and machine. The remote path asks
+for an SSH host and project folder before connecting.
+
+The remote project and its Python environment should already exist. Codex
+runs one bounded, read-only `delta compute inspect` first. That check reports objective facts such as the project and
+Git state, environment candidates, visible GPUs, scheduler, storage, and an existing `INFRA.md`. Codex then asks the
+researcher about choices the server cannot reveal: the approved environment, storage policy, GPU and concurrency
+limits, login-node restrictions, and lab conventions. It saves compute settings and policy rules only after explicit
+confirmation, then proves that the exact environment setup resolves Python with `delta compute check`.
+
+Manual fields remain available as a collapsed fallback for researchers who already know the exact configuration.
+Inspection and connection checks do not install software, clone code, move data, change Git, or start research work.
 
 `delta harness update` updates the optional source checkout for comparison. It refuses to overwrite tracked local
 changes or update a checkout that points at a different Git remote. It does not silently replace the active loop;

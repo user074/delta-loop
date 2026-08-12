@@ -1,15 +1,16 @@
-import { ArrowRight, BookOpen, GitBranch, Import, Play, RefreshCw, RotateCcw, ShieldCheck, SquareTerminal, X } from "lucide-react";
+import { ArrowRight, BookOpen, GitBranch, Import, Play, RefreshCw, RotateCcw, Server, ShieldCheck, SquareTerminal, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { getWorkspace, importWorkspace, listWorkspaces } from "./api";
 import type { DiscussionRequest } from "./discussions";
 import { generalPolicyDiscussion } from "./discussions";
 import HomePage from "./HomePage";
+import ComputePage from "./ComputePage";
 import PolicyPage from "./PolicyPage";
 import ResearchPage from "./ResearchPage";
 import RulesDrawer from "./RulesDrawer";
 import type { ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
 
-type View = "home" | "research" | "policy";
+type View = "home" | "research" | "policy" | "compute";
 
 const TerminalDock = lazy(() => import("./TerminalDock"));
 
@@ -17,6 +18,7 @@ const navItems = [
   { id: "home" as const, label: "Home", icon: BookOpen },
   { id: "research" as const, label: "Research", icon: GitBranch },
   { id: "policy" as const, label: "Policy", icon: ShieldCheck },
+  { id: "compute" as const, label: "Compute", icon: Server },
 ];
 
 function relativeDate(value: string) {
@@ -127,7 +129,7 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="sidebar-foot"><div className="local-dot" /><span>Local</span></div>
+        <div className="sidebar-foot"><div className="local-dot" /><span>{!workspace?.compute.configured ? "Compute not set up" : workspace.compute.kind === "ssh" ? "Remote work" : "Local work"}</span></div>
       </aside>
 
       <main className="main-shell">
@@ -177,12 +179,19 @@ export default function App() {
                 onOpenPolicy={(nodeId) => { setSelectedId(nodeId); setView("policy"); }}
                 onDiscuss={openDiscussion}
               />
-            ) : (
+            ) : view === "policy" ? (
               <PolicyPage
                 workspace={workspace}
                 selectedNode={selectedNode}
                 onSelect={setSelectedId}
                 onEditGeneral={() => setRulesOpen(true)}
+                onDiscuss={openDiscussion}
+              />
+            ) : (
+              <ComputePage
+                workspace={workspace}
+                onWorkspace={setWorkspace}
+                onError={setError}
                 onDiscuss={openDiscussion}
               />
             )}

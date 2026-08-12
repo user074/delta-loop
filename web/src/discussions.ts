@@ -99,3 +99,37 @@ export function generalPolicyDiscussion(
     ].join("\n\n"),
   };
 }
+
+export function computeDiscussion(
+  workspace: Workspace,
+  target: "local" | "ssh",
+): Omit<DiscussionRequest, "id"> {
+  const compute = workspace.compute;
+  const targetName = target === "local" ? "this computer" : "a remote server";
+  const inspectionInstructions = target === "local"
+    ? [
+        "The researcher chose this computer before opening this chat. Do not ask whether they meant remote work.",
+        "Run exactly one bounded read-only inspection with `delta compute inspect --local`. Do not repeat it unless the researcher asks or it fails.",
+      ]
+    : [
+        "The researcher chose a remote server before opening this chat. Do not redirect them to local setup unless they change their mind.",
+        "If the saved remote location is not enough, ask only for its SSH host or existing SSH alias and the project folder. Then run exactly one bounded read-only inspection with `delta compute inspect --host HOST --project PROJECT_PATH`. If the saved remote location is correct, run `delta compute inspect` without those options. Do not browse the server broadly or repeat the inspection unless the researcher asks or the first check fails.",
+      ];
+  return {
+    nodeId: null,
+    topic: `setting up ${targetName} for research work`,
+    prompt: [
+      ...opening(`how research work should run on ${targetName}`),
+      `The saved location is currently: ${!compute.configured ? "none" : compute.kind === "ssh" ? `${compute.name} over SSH at ${compute.ssh_host}` : "this computer"}.`,
+      "Run `delta compute show` before asking your first question.",
+      "Follow the delta-research infrastructure principle: first probe objective facts, then interview the researcher about policies and conventions that commands cannot reveal. Keep detected facts and human choices visibly separate.",
+      ...inspectionInstructions,
+      "Summarize what the inspection found: project and Git state; existing README.md, STATE.md, or INFRA.md; possible environment managers and environments; Python; scheduler; visible GPUs; CPU and memory; and whether the project and run location are writable. A GPU missing on a login node is not proof that the cluster has no GPUs.",
+      "Then ask one short round at a time about what cannot be safely inferred: (1) the environment and exact setup command, (2) which GPUs and how many runs may run together, (3) paths and rules for datasets, checkpoints, scratch files, and caches, and (4) login-node, Git, data, or lab rules. Reuse an existing INFRA.md rather than contradicting it.",
+      "Use the researcher's existing SSH configuration. Never ask for, display, or save a password, private key, access token, or secret in Delta Loop.",
+      "Do not install software, clone a project, move data, edit INFRA.md, change Git, create directories, or start research work during setup. Present the proposed compute settings and any proposed Delta Loop policy rules, and wait for explicit confirmation.",
+      "After confirmation, save the location with one `delta compute set` command. Add only the agreed non-secret rules with `delta rules add` or `delta rules update`, then run `delta compute check`. The check must prove that the agreed environment setup resolves Python. Explain exactly what was saved and what remains unverified.",
+      "Use `delta compute inspect --help`, `delta compute set --help`, and `delta rules --help` when needed. Do not make the researcher manually fill fields that the inspection and conversation can settle.",
+    ].join("\n\n"),
+  };
+}

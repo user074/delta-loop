@@ -56,6 +56,8 @@ class WorkspaceStore:
                 workspace.loop_file = previous.loop_file
                 workspace.policy_synced_at = previous.policy_synced_at
                 workspace.question_history = previous.question_history
+                workspace.compute = previous.compute
+                workspace.compute_inspection = previous.compute_inspection
                 if previous.question_history:
                     workspace.goal = previous.goal
                     question = next((node for node in workspace.nodes if node.kind == "question"), None)
