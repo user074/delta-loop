@@ -89,9 +89,35 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         "7. If a matching rule or `Ask before` field requires human input, stop before planning or starting that action.",
         "8. A rule for one idea may narrow the general policy, but it cannot override a required rule.",
         "9. Start approved work through Delta Loop so it uses the saved compute location; do not silently move work to another machine.",
+        "10. Git rules apply to the research repository at the compute project path. For a remote project, the local Delta Loop folder stores control notes and is not the repository to commit.",
         "",
-        "## Enabled general rules",
+        "## Research map",
+        "",
+        "The project may have several high-level questions and shared ideas or experiments. Follow the recorded relationships instead of assuming one fixed tree.",
+        "",
+        "| ID | Level | Title | Status |",
+        "|---|---|---|---|",
     ]
+
+    level_names = {"question": "Question", "direction": "Idea", "approach": "Experiment"}
+    for node in workspace.nodes:
+        lines.append(
+            f"| `{_table(node.id)}` | {_table(level_names[node.kind])} | "
+            f"{_table(node.title)} | {_table(node.status)} |"
+        )
+    lines.extend(["", "| From | Relationship | To | Note |", "|---|---|---|---|"])
+    nodes_by_id = {node.id: node for node in workspace.nodes}
+    for link in workspace.research_links:
+        source = nodes_by_id.get(link.source_id)
+        target = nodes_by_id.get(link.target_id)
+        if source and target:
+            lines.append(
+                f"| {_table(source.title)} | {_table(link.relationship.replace('-', ' '))} | "
+                f"{_table(target.title)} | {_table(link.note or '—')} |"
+            )
+    if not workspace.research_links:
+        lines.append("| — | No relationships recorded | — | — |")
+    lines.extend(["", "## Enabled general rules"])
 
     enabled = [rule for rule in (active.rules if active else []) if rule.enabled]
     for category in CATEGORY_NAMES:
@@ -130,13 +156,22 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         ]
     )
     for approach in approaches:
+        connected_direction_ids = [
+            link.source_id for link in workspace.research_links
+            if link.target_id == approach.id and link.relationship == "tests"
+        ]
+        connected_directions = [
+            directions[node_id].title for node_id in connected_direction_ids
+            if node_id in directions
+        ]
         direction = directions.get(approach.parent_id or "")
+        idea_names = connected_directions or ([direction.title] if direction else [])
         lines.append(
             "| "
             + " | ".join(
                 [
                     _table(approach.title),
-                    _table(direction.title if direction else "Not linked"),
+                    _table("; ".join(idea_names) if idea_names else "Not linked"),
                     _table(approach.status),
                     _table(WORK_KIND_NAMES.get(approach.next_work_kind, approach.next_work_kind)),
                     _table(approach.agent_guidance or "Use the general policy"),
@@ -179,6 +214,7 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
     loop_stages = [rule for rule in loop_rules if rule.loop_level == "stage"]
     loop_steps = [rule for rule in loop_rules if rule.loop_level == "step"]
     other_rules = [rule for rule in enabled if rule.category != "loop"]
+    git_rules = [rule for rule in other_rules if rule.category == "git"]
     shared_rules = [rule for rule in other_rules if not rule.loop_step_ids]
     version_number = active.version if active else 0
     compute = workspace.compute
@@ -215,7 +251,8 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
         "1. Read this file and the current idea policy recorded above.",
         "2. Run `delta context` in a Delta Loop terminal to see the selected idea and current human choices.",
         "3. Run `delta compute show` before planning execution. If no location is configured, stop and ask the researcher to set one up.",
-        "4. If either generated file cannot be read, stop and report the blocker instead of guessing.",
+        "4. If a Git rule is enabled, run `delta git check` and apply Git only to the actual research repository shown there, not Delta Loop's local control folder.",
+        "5. If either generated file cannot be read, stop and report the blocker instead of guessing.",
         "",
         "## Research cycle",
         "",
@@ -312,7 +349,12 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
             "",
             "Required safety rule → matching idea policy → other enabled rules → the active research-loop step.",
             "",
-            "This policy does not by itself authorize pushing, publishing, deleting data, spending money, or another outside side effect.",
+            (
+                "Pushing is allowed only at the exact point described by an enabled Git rule; otherwise stop and ask. "
+                "No policy rule by itself authorizes publishing elsewhere, deleting data, spending money, or another outside side effect."
+                if git_rules
+                else "No Git rule is enabled. Do not commit or push. Publishing, deleting data, spending money, or another outside side effect also requires explicit approval."
+            ),
             "",
         ]
     )

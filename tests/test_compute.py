@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import time
 
 from fastapi.testclient import TestClient
@@ -21,6 +22,15 @@ def fake_ssh(tmp_path: Path) -> Path:
     )
     executable.chmod(0o700)
     return executable
+
+
+def make_git_repo(path: Path, remote: str = "git@github.com:user074/example-research.git") -> None:
+    subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "Delta Test"], check=True)
+    subprocess.run(["git", "-C", str(path), "add", "STATE.md"], check=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-m", "initial research state"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(path), "remote", "add", "origin", remote], check=True)
 
 
 def test_local_compute_check_reports_project_tools(tmp_path: Path) -> None:
@@ -52,6 +62,77 @@ def test_local_compute_inspection_uses_the_local_project(tmp_path: Path) -> None
         assert inspection["project_exists"] is True
         assert inspection["has_state"] is True
         assert "requirements.txt" in inspection["dependency_files"]
+
+
+def test_git_check_reads_local_research_repository_and_policy(tmp_path: Path) -> None:
+    project = tmp_path / "git-project"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    make_git_repo(project)
+    (project / "notes.txt").write_text("new result\n", encoding="utf-8")
+    app = create_app(tmp_path / "git-data.json")
+
+    with TestClient(app) as client:
+        workspace = client.post(
+            "/api/workspaces/import", json={"path": str(project)}
+        ).json()
+        response = client.post(f"/api/workspaces/{workspace['id']}/git/check")
+        assert response.status_code == 200
+        snapshot = response.json()
+        repository = snapshot["git_repository"]
+        assert repository["state"] == "ready"
+        assert repository["repository_root"] == str(project)
+        assert repository["branch"] == "main"
+        assert repository["github_url"] == "https://github.com/user074/example-research"
+        assert any("notes.txt" in line for line in repository["changed_files"])
+        active = next(
+            version
+            for version in snapshot["rules_versions"]
+            if version["id"] == snapshot["active_rules_version_id"]
+        )
+        git_rule = next(rule for rule in active["rules"] if rule["id"] == "git-reviewed-work")
+        assert git_rule["enabled"] is False
+
+
+def test_git_check_uses_remote_project_not_local_control_folder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    remote_project = tmp_path / "actual-remote-repository"
+    remote_project.mkdir()
+    (remote_project / "STATE.md").write_text(STATE, encoding="utf-8")
+    make_git_repo(remote_project)
+    monkeypatch.setenv("DELTA_LOOP_SSH_COMMAND", str(fake_ssh(tmp_path)))
+    app = create_app(tmp_path / "data" / "workspaces.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/remote").json()
+        unset = client.post(f"/api/workspaces/{workspace['id']}/git/check")
+        assert unset.status_code == 422
+        assert "remote research project" in unset.json()["detail"]
+        configured = client.put(
+            f"/api/workspaces/{workspace['id']}/compute",
+            json={
+                "kind": "ssh",
+                "name": "Research server",
+                "ssh_host": "fake-server",
+                "project_path": str(remote_project),
+                "run_path": "~/.delta-loop/runs",
+                "setup_command": "",
+                "gpu_devices": "",
+                "max_parallel": 1,
+            },
+        )
+        assert configured.status_code == 200
+        checked = client.post(
+            f"/api/workspaces/{workspace['id']}/git/check"
+        )
+        assert checked.status_code == 200
+        snapshot = checked.json()
+        repository = snapshot["git_repository"]
+        assert repository["state"] == "ready"
+        assert repository["repository_root"] == str(remote_project)
+        assert repository["location"] == f"fake-server:{remote_project}"
+        assert repository["repository_root"] != workspace["root"]
 
 
 def test_compute_setup_can_be_reset_without_removing_research(tmp_path: Path) -> None:
@@ -107,6 +188,16 @@ def test_remote_project_setup_reads_only_bounded_useful_files(
     (project / "pyproject.toml").write_text("[project]\nname = 'remote-study'\n", encoding="utf-8")
     (project / ".env").write_text("SECRET_SHOULD_NOT_BE_READ=1\n", encoding="utf-8")
     (project / "large-result.bin").write_bytes(b"result" * 1000)
+    nested = project / "src" / "model" / "training" / "pipelines"
+    nested.mkdir(parents=True)
+    (nested / "train.py").write_text(
+        "from src.model.core import Model\n\ndef train():\n    return Model()\n",
+        encoding="utf-8",
+    )
+    (project / "src" / "model" / "core.py").write_text(
+        "class Model:\n    pass\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("DELTA_LOOP_SSH_COMMAND", str(fake_ssh(tmp_path)))
     app = create_app(tmp_path / "data" / "workspaces.json")
 
@@ -124,10 +215,36 @@ def test_remote_project_setup_reads_only_bounded_useful_files(
         assert inspection["project_exists"] is True
         assert "This studies long inputs" in inspection["documentation"]["README.md"]
         assert "existing evaluation script" in inspection["documentation"]["AGENTS.md"]
+        assert inspection["total_files"] >= 5
+        assert "src/model/training/pipelines/train.py" in inspection["top_level_files"]
+        assert "src/model/training/pipelines/train.py" in inspection["entry_points"]
+        assert "def train" in inspection["documentation"]["src/model/training/pipelines/train.py"]
+        assert inspection["file_types"][".py"] == 2
         assert ".env" not in inspection["top_level_files"]
         assert ".env" not in inspection["documentation"]
-        assert "large-result.bin" in inspection["top_level_files"]
+        assert "large-result.bin" not in inspection["top_level_files"]
         assert "large-result.bin" not in inspection["documentation"]
+
+        followed = client.post(
+            f"/api/workspaces/{workspace['id']}/setup/read-remote",
+            json={
+                "ssh_host": "fake-server",
+                "project_path": str(project),
+                "paths": ["src/model/core.py"],
+            },
+        )
+        assert followed.status_code == 200
+        assert "class Model" in followed.json()["files"]["src/model/core.py"]
+
+        secret = client.post(
+            f"/api/workspaces/{workspace['id']}/setup/read-remote",
+            json={
+                "ssh_host": "fake-server",
+                "project_path": str(project),
+                "paths": [".env"],
+            },
+        )
+        assert secret.status_code == 422
         refreshed = client.get(f"/api/workspaces/{workspace['id']}").json()
         assert refreshed["name"] == "existing-remote-repo"
 

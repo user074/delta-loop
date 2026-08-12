@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 
 from .models import ProjectSnapshot, ProtocolDecision
+from .research_map import ensure_research_links
 
 
 class WorkspaceStore:
@@ -21,6 +22,11 @@ class WorkspaceStore:
         self._workspaces = {
             item["id"]: ProjectSnapshot.model_validate(item) for item in data.get("workspaces", [])
         }
+        links_changed = False
+        for workspace in self._workspaces.values():
+            links_changed = ensure_research_links(workspace) or links_changed
+        if links_changed:
+            self._save()
 
     def _save(self) -> None:
         with self._lock:
@@ -56,8 +62,11 @@ class WorkspaceStore:
                 workspace.loop_file = previous.loop_file
                 workspace.policy_synced_at = previous.policy_synced_at
                 workspace.question_history = previous.question_history
+                workspace.node_history = previous.node_history
+                workspace.research_links = previous.research_links
                 workspace.compute = previous.compute
                 workspace.compute_inspection = previous.compute_inspection
+                workspace.git_repository = previous.git_repository
                 workspace.setup_status = previous.setup_status
                 workspace.setup_summary = previous.setup_summary
                 workspace.reference_repos = previous.reference_repos
@@ -90,12 +99,14 @@ class WorkspaceStore:
                 workspace.nodes.extend(
                     node for node in previous.nodes if node.id not in imported_node_ids
                 )
+            ensure_research_links(workspace)
             self._workspaces[workspace.id] = workspace
             self._save()
             return workspace
 
     def save(self, workspace: ProjectSnapshot) -> ProjectSnapshot:
         with self._lock:
+            ensure_research_links(workspace)
             self._workspaces[workspace.id] = workspace
             self._save()
             return workspace

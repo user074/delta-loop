@@ -56,6 +56,7 @@ def render_initial_state(
     workspace: ProjectSnapshot,
     request: ProjectSetupRequest,
 ) -> str:
+    questions = [node for node in workspace.nodes if node.kind == "question"]
     directions = [node for node in workspace.nodes if node.kind == "direction"]
     approaches = [node for node in workspace.nodes if node.kind == "approach"]
     direction_numbers = {node.id: index for index, node in enumerate(directions, start=1)}
@@ -69,10 +70,23 @@ def render_initial_state(
         f"- **last_updated**: {today}",
         "- **status**: active",
         "",
+        "## ResearchQuestions",
+        "| Question | Status | Scope |",
+        "|---|---|---|",
+    ]
+    for question in questions:
+        lines.append(
+            f"| {_cell(question.title)} | {_cell(question.status)} | "
+            f"{_cell(question.summary or 'High-level research question')} |"
+        )
+    lines.extend(
+        [
+        "",
         "## BeliefState",
         "| # | Parent | Belief | Status | Confidence | Key evidence | Last updated |",
         "|---|---|---|---|---|---|---|",
-    ]
+        ]
+    )
     for index, direction in enumerate(directions, start=1):
         lines.append(
             f"| {index} | — | {_cell(direction.title)} | active | 0.5 | "

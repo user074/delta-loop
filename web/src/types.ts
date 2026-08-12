@@ -1,4 +1,5 @@
 export type NodeKind = "question" | "direction" | "approach";
+export type ResearchRelationship = "explores" | "tests" | "supports" | "challenges" | "informs" | "depends-on" | "related";
 export type NodeStatus = "primary" | "active" | "dormant" | "closed";
 export type StageAction = "promote" | "repeat" | "revise" | "redirect" | "stop";
 export type WorkKind =
@@ -51,6 +52,24 @@ export interface QuestionRevision {
   previous: string;
   current: string;
   reason: string;
+  created_at: string;
+}
+
+export interface ResearchNodeRevision {
+  id: string;
+  node_id: string;
+  node_kind: NodeKind;
+  changes: Record<string, string>;
+  reason: string;
+  created_at: string;
+}
+
+export interface ResearchLink {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relationship: ResearchRelationship;
+  note: string;
   created_at: string;
 }
 
@@ -194,6 +213,26 @@ export interface ComputeInspection {
   notes: string[];
 }
 
+export interface GitRepositoryStatus {
+  state: "unchecked" | "ready" | "not-repository" | "unreachable";
+  message: string;
+  checked_at: string;
+  location: string;
+  project_path: string;
+  repository_found: boolean;
+  repository_root: string;
+  branch: string;
+  remote_name: string;
+  remote_url: string;
+  github_url: string;
+  upstream: string;
+  changed_files: string[];
+  changes_truncated: boolean;
+  ahead: number;
+  behind: number;
+  last_commit: string;
+}
+
 export interface ResultReview {
   id: string;
   attempt_id: string;
@@ -278,6 +317,7 @@ export interface Workspace {
   claims: Claim[];
   runs: RunRecord[];
   nodes: ResearchNode[];
+  research_links: ResearchLink[];
   scratch: string[];
   protocol_id: string;
   protocol_version: number;
@@ -294,8 +334,10 @@ export interface Workspace {
   policy_synced_at: string;
   harness: HarnessInfo;
   question_history: QuestionRevision[];
+  node_history: ResearchNodeRevision[];
   compute: ComputeConfig;
   compute_inspection: ComputeInspection | null;
+  git_repository: GitRepositoryStatus;
   setup_status: "needs-setup" | "ready";
   setup_summary: string;
   reference_repos: string[];

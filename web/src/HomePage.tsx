@@ -48,6 +48,9 @@ export default function HomePage({
   const [busy, setBusy] = useState(false);
   const directions = workspace.nodes.filter((node) => node.kind === "direction");
   const approaches = workspace.nodes.filter((node) => node.kind === "approach");
+  const approachesForIdea = (directionId: string) => approaches.filter((approach) => (
+    workspace.research_links.some((link) => link.source_id === directionId && link.target_id === approach.id && link.relationship === "tests")
+  ));
   const latestAttempt = useMemo(
     () => workspace.attempts.slice().sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null,
     [workspace.attempts],
@@ -146,7 +149,7 @@ export default function HomePage({
           <h2>What is working and what is not</h2>
           <div className="idea-outcome-list">
             {directions.map((direction) => (
-              <IdeaOutcome key={direction.id} direction={direction} approaches={approaches.filter((item) => item.parent_id === direction.id)} workspace={workspace} onOpen={onOpenResearch} />
+              <IdeaOutcome key={direction.id} direction={direction} approaches={approachesForIdea(direction.id)} workspace={workspace} onOpen={onOpenResearch} />
             ))}
           </div>
         </aside>

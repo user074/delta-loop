@@ -16,9 +16,9 @@ const RESEARCH_START_PROMPT = [
 ].join("\n\n");
 
 const nodeKindLabels: Record<ResearchNode["kind"], string> = {
-  question: "main research question",
-  direction: "research direction",
-  approach: "way to test the idea",
+  question: "research question",
+  direction: "research idea",
+  approach: "experiment",
 };
 
 function researchStartPrompt(
@@ -30,8 +30,12 @@ function researchStartPrompt(
     return `${RESEARCH_START_PROMPT}\n\nThe researcher started this session from the ${request.sourcePage} page without pointing to a specific item in the research map. Consider the whole research map when choosing the next work.`;
   }
 
-  const parent = focus.parent_id ? workspace.nodes.find((node) => node.id === focus.parent_id) : null;
-  const children = workspace.nodes.filter((node) => node.parent_id === focus.id);
+  const connections = workspace.research_links.filter((link) => link.source_id === focus.id || link.target_id === focus.id);
+  const connectedItems = connections.flatMap((link) => {
+    const outgoing = link.source_id === focus.id;
+    const other = workspace.nodes.find((node) => node.id === (outgoing ? link.target_id : link.source_id));
+    return other ? [`${outgoing ? link.relationship : `${link.relationship} this`}: ${other.title}`] : [];
+  });
   const focusDetails = [
     "The researcher pressed the research button while this item was selected on the visual Research page. Treat it as their current focus and begin by considering work in this branch. This is an attention signal, not permission to ignore the active policy or its approval boundaries.",
     `Selected item type: ${nodeKindLabels[focus.kind]}`,
@@ -41,8 +45,7 @@ function researchStartPrompt(
     `Status: ${focus.status}`,
     `Potential: ${focus.promise}`,
     `Evidence so far: ${focus.evidence_strength}`,
-    parent ? `Parent item: ${parent.title}` : "",
-    children.length ? `Ways currently shown under it: ${children.map((node) => node.title).join("; ")}` : "",
+    connectedItems.length ? `Connected research items: ${connectedItems.join("; ")}` : "No research relationships are recorded for this item yet.",
     focus.kind === "approach" ? `Next work requested in the UI: ${focus.next_work_kind}` : "",
     focus.agent_guidance ? `Special guidance for this item: ${focus.agent_guidance}` : "",
     focus.ask_before ? `Ask the researcher before: ${focus.ask_before}` : "",
@@ -300,8 +303,8 @@ export default function TerminalDock({
       ) : (
         <div className="terminal-preview">
           <span className="prompt">delta</span>
-          <span>{active ? "Terminal is still running while hidden." : "Open a terminal for the selected idea."}</span>
-          <button><Box size={13} /> {selectedNode ? "Selected idea is ready" : "Choose an idea first"}</button>
+          <span>{active ? "Terminal is still running while hidden." : "Open a terminal for the selected research item."}</span>
+          <button><Box size={13} /> {selectedNode ? "Selection is ready" : "Choose an item first"}</button>
         </div>
       )}
     </section>

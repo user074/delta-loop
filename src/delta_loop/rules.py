@@ -3,7 +3,7 @@ from __future__ import annotations
 from .models import AgentRule, RulesVersion
 
 
-POLICY_SCHEMA_VERSION = 4
+POLICY_SCHEMA_VERSION = 5
 
 # These were the first POC's simplified loop. Their jobs now live in the complete
 # delta-research cycle below, so keeping them as loop steps would show the work twice.

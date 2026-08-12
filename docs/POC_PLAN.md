@@ -64,6 +64,7 @@ This table is the product requirements document for the POC. A proposed feature 
 | Review semantics | A report proposes a verdict and belief update. | Method validity, observed result, scientific interpretation, and code quality are different judgments. | Separate execution review, observation acceptance, interpretation, belief update, and optional code integration. |
 | Terminal workflow | The existing system works directly in the repository through agent tools and shell commands. | The terminal remains best for debugging, code inspection, commands, SLURM, and interactive collaboration, but it is visually disconnected from the research arc. | Make terminal sessions first-class and link them to directions, approaches, packages, and attempts. Clicking a node opens or reattaches its session; the same session can be attached from the browser or a local/VS Code terminal. |
 | Compute location | Research code may live on a workstation or a remote GPU server. `delta-research` records infrastructure and follows a probe-then-interview setup: commands reveal hardware and software facts, while the researcher supplies storage policy, appropriate resources, and cluster or lab conventions. | On a server without SLURM, the researcher wants Delta Loop to remain local while approved commands run remotely. The agent must not guess the host, project path, environment, GPUs, storage policy, or safe concurrency, and the researcher should not have to manually transcribe everything into a form. | Make agent-led setup the main path. Run one bounded read-only probe; show detected facts separately from human choices; ask one short round at a time about the environment, storage, GPU and concurrency limits, login-node restrictions, Git, data, and lab rules; save only after confirmation; then validate the exact setup. Freeze the chosen location into every attempt, launch a persistent remote process, reconnect to status and logs, and show the remote output path. Keep manual fields as an advanced fallback and never store SSH credentials. Provide a safe reset that clears the saved location and inspection while preserving research files, run history, and results. |
+| Git and GitHub | `delta-research` can ask an agent to inspect, commit, and sometimes push reviewed work, while IDE Git tools remain available. | For remote work, Delta Loop's local notes folder looks like a project folder but is not the actual research repository. Without a visible rule, an agent may use the wrong folder or the researcher must manually remember when to commit and push. | Put Git controls on Compute. Show the actual local or SSH repository separately from Delta Loop's control folder. Provide a read-only status check for branch, remote, upstream, changed paths, and cached ahead/behind counts. Keep commit, branch, result-record, and push behavior in checked policy rules. Codex discusses and saves those rules; commit permission never implies push permission. The finish-cycle step applies enabled Git rules to the actual compute project. |
 | Web awareness | `loopit` shows live activity, state, next work, history, steering, and durable runtime records. | The awareness and observability are useful. Seeing what is happening and what comes next lowers uncertainty. | Reuse these interaction lessons in a smaller research dashboard: current package, current operation, latest evidence, next checkpoint, decisions needed, and resource use. |
 | Web conversation | `loopit` construction and understanding messages launch CLI processes and rehydrate saved context. | A sequence of non-interactive `exec` turns feels less natural than a persistent agent session and repeatedly pays context/setup cost. | Embed or attach a real persistent terminal session, not a chat form that launches a new process per message. The UI adds visual context and structured controls around that session. |
 | Loop verification | `loopit` can trace, rehearse, repair, and retest a loop using fresh agents. | The system may spend more tokens verifying that the loop works than producing the target project's native deliverables. | Use deterministic validation for schemas and invariants. Permit model-based review only for a named scientific or safety risk and only after real work exists to review. |
@@ -381,32 +382,39 @@ a concise PI update: claims and decisions first, evidence one click deeper, raw 
 
 ### 7.2 Research
 
-The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. Its
-stable ownership hierarchy is:
+The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. It
+keeps three readable abstraction levels without forcing the research into one tree:
 
 ```text
-Research question
-  Direction / Arc
-    Approach
-      Work package
+One or more research questions
+  Ideas / directions
+    Concrete experiments
 ```
 
-A direction is a meaningful way to attack the research question. An approach is one concrete method within that
-direction. Each node can start with only a title and a short note; Delta should not force the researcher to fill a
-large form before preserving an idea.
+An idea is a meaningful explanation, mechanism, or strategic way to attack one or more research questions. An
+experiment is one concrete implementation, comparison, dataset, ablation, or measurement. Each node can start with
+only a title and a short note; Delta should not force the researcher to fill a large form before preserving it.
 
 The graph supports a small set of typed relationships:
 
 ```text
-contains          Direction → Approach
-alternative_to    Direction or Approach ↔ Direction or Approach
-derived_from      New direction or approach → prior observation or approach
-depends_on        Approach → prerequisite approach, artifact, or result
-informed_by       Direction or approach → claim, evidence, or lab note
+explores          Question → Idea
+tests             Idea → Experiment
+supports          Any research item → another research item
+challenges        Any research item → another research item
+informs           Any research item → another research item
+depends_on        Any research item → prerequisite research item
+related           Any research item ↔ another research item
 ```
 
-Every node has one primary parent for stable layout. Typed cross-links provide the graph relation without turning
-the POC into a general node editor.
+Questions, ideas, and experiments occupy stable visual columns. Existing imports retain one compatibility parent,
+but typed links are the source of the visible research relationships. An idea can explore several questions and an
+experiment can test or inform several ideas without being duplicated.
+
+The graph is an interaction surface, not only a report. The map header can start a new-question conversation.
+Selecting a question exposes Add idea; selecting an idea exposes Add experiment; and every item exposes Explore,
+Revise, and Connect. These actions open Codex with the selected item, current graph, and intended operation already
+in context. Structural changes remain conversational and require approval rather than becoming a dense form editor.
 
 A direction or approach records:
 
@@ -718,11 +726,12 @@ be added only after one real project demonstrates that it needs distinct control
 Imports the useful parts of `STATE.md`, `INFRA.md`, repository configuration, reference repositories, datasets,
 checkpoints, environment, evaluation conventions, and default policies.
 
-### ResearchDirection (Arc) and Approach
+### ResearchQuestion, ResearchIdea, and Experiment
 
 Represent the human's conceptual organization and history of allocation. They do not replace scientific claims.
-Each has a stable primary parent, a short lab-note representation, independent status/promise/evidence signals,
-typed cross-links, outcome summaries, and linked terminal sessions.
+Each has a short lab-note representation, independent status/promise/evidence signals, typed graph links, outcome
+summaries, and linked terminal sessions. A project may have multiple high-level questions, shared ideas, and
+cross-cutting experiments.
 
 ### LabNote
 
@@ -1334,10 +1343,10 @@ modifying or migrating existing files.
 **Goal:** Represent the researcher's conceptual layer, make it directly navigable into persistent terminal work,
 and expose editable rules.
 
-- Add one-line lab-note capture and explicit promotion into directions or approaches
-- Add directions and approaches with independent status, promise, evidence strength, history, allocation, and
-  revisit triggers
-- Add typed alternative, derivation, dependency, and evidence links with one stable primary parent
+- Add one-line lab-note capture and explicit promotion into questions, ideas, or experiments
+- Add multiple questions, ideas, and experiments with independent status, promise, evidence strength, history,
+  allocation, and revisit triggers
+- Add typed question-to-idea, idea-to-experiment, support, challenge, information, dependency, and related links
 - Link existing claims, reports, and runs to approaches
 - Implement the local PTY session service, browser terminal dock, and `delta terminal attach`
 - Implement a thin VS Code extension that publishes active editor/tab/selection and terminal shell-integration
@@ -1622,7 +1631,7 @@ Do not add these until the revised POC demonstrates useful research progress:
   schemas, validators, and scenarios
 - Agent-authored harness changes that activate themselves without researcher review
 - Plugin marketplace
-- W&B, literature database, GitHub, or tracker integrations beyond simple links
+- W&B, literature database, hosted GitHub API/OAuth, or tracker integrations. The POC uses the repository's existing Git remote through the researcher's local or SSH environment.
 - Full SLURM scheduling UI; existing Delta/terminal execution remains usable
 - Generated presentation decks or polished weekly exports
 
