@@ -44,9 +44,10 @@ class _TerminalRecord:
 
 
 class TerminalManager:
-    def __init__(self) -> None:
+    def __init__(self, api_url: str = "http://127.0.0.1:4318") -> None:
         self._sessions: dict[str, _TerminalRecord] = {}
         self._lock = threading.RLock()
+        self._api_url = api_url.rstrip("/")
 
     def create(
         self,
@@ -66,7 +67,7 @@ class TerminalManager:
             **os.environ,
             "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}",
             "TERM": "xterm-256color",
-            "DELTA_LOOP_API_URL": "http://127.0.0.1:4318",
+            "DELTA_LOOP_API_URL": self._api_url,
             "DELTA_LOOP_TERMINAL_ID": session_id,
             "DELTA_LOOP_WORKSPACE_ID": workspace_id,
             "DELTA_LOOP_NODE_ID": node_id or "",

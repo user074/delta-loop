@@ -9,18 +9,40 @@ import select
 import sys
 import termios
 import threading
+import time
 import tty
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from uuid import uuid4
 
 from .importer import ImportFailure, import_workspace
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(prog="delta", description="Delta Loop local research cockpit")
+DEFAULT_API_URL = "http://127.0.0.1:4317"
+
+
+def _default_api_url() -> str:
+    return os.environ.get("DELTA_LOOP_API_URL", DEFAULT_API_URL)
+
+
+def _default_ws_url() -> str:
+    return _default_api_url().replace("http://", "ws://", 1).replace("https://", "wss://", 1)
+
+
+def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
+    parser = argparse.ArgumentParser(prog=program, description="Delta Loop local research cockpit")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    ui_parser = subparsers.add_parser("ui", help="Start Delta Loop and open it in your browser")
+    ui_parser.add_argument("--host", default="127.0.0.1")
+    ui_parser.add_argument("--port", default=4317, type=int)
+    ui_parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
+    ui_parser.add_argument(
+        "--data",
+        help="Advanced: use a different Delta Loop data file",
+    )
 
     serve_parser = subparsers.add_parser("serve", help="Run the local Delta Loop API")
     serve_parser.add_argument("--host", default="127.0.0.1")
@@ -33,13 +55,13 @@ def main() -> None:
     terminal_subparsers = terminal_parser.add_subparsers(dest="terminal_command", required=True)
     attach_parser = terminal_subparsers.add_parser("attach", help="Attach to a live terminal")
     attach_parser.add_argument("session_id")
-    attach_parser.add_argument("--url", default="ws://127.0.0.1:4318")
+    attach_parser.add_argument("--url", default=_default_ws_url())
 
     context_parser = subparsers.add_parser("context", help="Show the research context for this terminal")
     context_parser.add_argument("--json", action="store_true", dest="as_json")
     context_parser.add_argument("--workspace")
     context_parser.add_argument("--node")
-    context_parser.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
+    context_parser.add_argument("--url", default=_default_api_url())
 
     project_parser = subparsers.add_parser(
         "project", help="Finish the initial setup of an existing research project"
@@ -57,7 +79,7 @@ def main() -> None:
     project_finish.add_argument("--workspace")
     project_finish.add_argument(
         "--url",
-        default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+        default=_default_api_url(),
     )
     project_inspect = project_subparsers.add_parser(
         "inspect-remote",
@@ -69,7 +91,7 @@ def main() -> None:
     project_inspect.add_argument("--workspace")
     project_inspect.add_argument(
         "--url",
-        default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+        default=_default_api_url(),
     )
 
     compute_parser = subparsers.add_parser(
@@ -116,7 +138,7 @@ def main() -> None:
         item.add_argument("--workspace")
         item.add_argument(
             "--url",
-            default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+            default=_default_api_url(),
         )
 
     work_parser = subparsers.add_parser(
@@ -148,7 +170,7 @@ def main() -> None:
         item.add_argument("--workspace")
         item.add_argument(
             "--url",
-            default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"),
+            default=_default_api_url(),
         )
 
     policy_parser = subparsers.add_parser("policy", help="Read or update policy for the selected idea")
@@ -158,7 +180,7 @@ def main() -> None:
     for item in (policy_show, policy_set):
         item.add_argument("--workspace")
         item.add_argument("--node")
-        item.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
+        item.add_argument("--url", default=_default_api_url())
     policy_set.add_argument(
         "--kind",
         choices=[
@@ -180,7 +202,7 @@ def main() -> None:
     question_set.add_argument("question")
     question_set.add_argument("--reason", default="")
     question_set.add_argument("--workspace")
-    question_set.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
+    question_set.add_argument("--url", default=_default_api_url())
 
     rules_parser = subparsers.add_parser("rules", help="Read or replace the general policy")
     rules_subparsers = rules_parser.add_subparsers(dest="rules_command", required=True)
@@ -218,7 +240,7 @@ def main() -> None:
     rules_update.set_defaults(enabled=None)
     for item in (rules_show, rules_sync, rules_apply, rules_add, rules_update):
         item.add_argument("--workspace")
-        item.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
+        item.add_argument("--url", default=_default_api_url())
 
     harness_parser = subparsers.add_parser("harness", help="Inspect or update the delta-research harness")
     harness_subparsers = harness_parser.add_subparsers(dest="harness_command", required=True)
@@ -226,7 +248,7 @@ def main() -> None:
     harness_update = harness_subparsers.add_parser("update", help="Fast-forward a clean harness checkout")
     for item in (harness_show, harness_update):
         item.add_argument("--workspace")
-        item.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
+        item.add_argument("--url", default=_default_api_url())
 
     map_parser = subparsers.add_parser("map", help="Read or develop the research idea map")
     map_subparsers = map_parser.add_subparsers(dest="map_command", required=True)
@@ -248,13 +270,24 @@ def main() -> None:
     map_update.add_argument("--promise", choices=["high", "medium", "low", "unassessed"])
     for item in (map_show, map_add_idea, map_add_test, map_update):
         item.add_argument("--workspace")
-        item.add_argument("--url", default=os.environ.get("DELTA_LOOP_API_URL", "http://127.0.0.1:4318"))
+        item.add_argument("--url", default=_default_api_url())
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.command == "ui":
+        _run_ui(args.host, args.port, not args.no_open, args.data)
+        return
+
     if args.command == "serve":
         import uvicorn
+        from .api import create_app
 
-        uvicorn.run("delta_loop.api:app", host=args.host, port=args.port, reload=False)
+        public_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
+        uvicorn.run(
+            create_app(api_url=f"http://{public_host}:{args.port}"),
+            host=args.host,
+            port=args.port,
+            reload=False,
+        )
         return
 
     if args.command == "terminal":
@@ -431,6 +464,64 @@ def main() -> None:
     except ImportFailure as exc:
         parser.error(str(exc))
     print(json.dumps(snapshot.model_dump(mode="json"), indent=2))
+
+
+def ui_main() -> None:
+    main(["ui", *sys.argv[1:]], program="delta-loop")
+
+
+def _default_data_path() -> Path:
+    configured = os.environ.get("DELTA_LOOP_DATA_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / ".delta-loop" / "workspaces.json").resolve()
+
+
+def _app_is_running(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"{url}/api/health", timeout=0.6) as response:
+            return response.status == 200
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def _open_when_ready(url: str) -> None:
+    for _ in range(80):
+        if _app_is_running(url):
+            webbrowser.open(url)
+            return
+        time.sleep(0.1)
+
+
+def _run_ui(host: str, port: int, open_browser: bool, data_path: str | None) -> None:
+    import uvicorn
+
+    from .api import create_app
+
+    browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    url = f"http://{browser_host}:{port}"
+    if _app_is_running(url):
+        print(f"Delta Loop is already running at {url}")
+        if open_browser:
+            webbrowser.open(url)
+        return
+
+    store_path = Path(data_path).expanduser().resolve() if data_path else _default_data_path()
+    try:
+        application = create_app(
+            store_path,
+            serve_web=True,
+            api_url=url,
+        )
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if open_browser:
+        threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
+    print(f"Opening Delta Loop at {url}")
+    print(f"Your Delta Loop data is stored in {store_path.parent}")
+    print("Keep this window open while using Delta Loop. Press Ctrl+C to stop it.")
+    uvicorn.run(application, host=host, port=port, reload=False)
 
 
 def _attach_terminal(base_url: str, session_id: str) -> None:

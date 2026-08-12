@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .compute import (
     ComputeFailure,
@@ -67,7 +68,13 @@ from .store import WorkspaceStore
 from .terminal import TerminalFailure, TerminalManager
 
 
-def create_app(store_path: str | Path | None = None) -> FastAPI:
+def create_app(
+    store_path: str | Path | None = None,
+    *,
+    serve_web: bool = False,
+    api_url: str = "http://127.0.0.1:4318",
+    web_dist: str | Path | None = None,
+) -> FastAPI:
     data_path = Path(
         store_path
         or os.environ.get("DELTA_LOOP_DATA_PATH", ".delta-loop-data/workspaces.json")
@@ -75,7 +82,7 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
     store = WorkspaceStore(data_path)
     protocols = {profile.id: profile for profile in default_protocols()}
     runner = AttemptRunner(store)
-    terminals = TerminalManager()
+    terminals = TerminalManager(api_url=api_url)
     app = FastAPI(title="Delta Loop", version="0.1.0")
     app.state.store = store
     app.state.runner = runner
@@ -783,6 +790,18 @@ def create_app(store_path: str | Path | None = None) -> FastAPI:
             pass
         finally:
             terminals.release_input(session_id)
+
+    if serve_web:
+        built_web = Path(
+            web_dist
+            or os.environ.get("DELTA_LOOP_WEB_DIST", "")
+            or Path(__file__).resolve().parents[2] / "web" / "dist"
+        ).expanduser().resolve()
+        if not (built_web / "index.html").is_file():
+            raise RuntimeError(
+                f"The Delta Loop web app is not built at {built_web}. Run ./install.sh first."
+            )
+        app.mount("/", StaticFiles(directory=built_web, html=True), name="web")
 
     return app
 

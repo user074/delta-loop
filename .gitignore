@@ -220,4 +220,5 @@ __marimo__/
 # Delta Loop local runtime
 .delta-loop-data/
 web/node_modules/
-web/dist/
+!web/dist/
+!web/dist/**
