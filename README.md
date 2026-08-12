@@ -250,13 +250,37 @@ git clone --depth 1 https://github.com/user074/delta-loop.git ~/delta-loop
 ~/delta-loop/install.sh --no-launch
 ```
 
-On the server, start Delta Loop on the SSH-only address:
+### Keep Delta Loop running when SSH disconnects
+
+If Delta Loop runs directly in a normal SSH terminal, assume it will stop when that SSH connection closes. The
+recommended setup is to run it inside `tmux`, which keeps the server process alive after you disconnect.
+
+On the server, create a named `tmux` session and start Delta Loop on the SSH-only address:
 
 ```bash
+tmux new -s delta-loop
 ~/.local/bin/delta-loop --host 127.0.0.1 --port 4317 --no-open
 ```
 
-Keep that terminal open. In a second terminal on your own computer, create the encrypted SSH tunnel:
+Detach from `tmux` without stopping Delta Loop by pressing `Ctrl+B`, releasing the keys, and then pressing `D`.
+You can now close the server's SSH connection. To see the Delta Loop process again later:
+
+```bash
+ssh YOUR_SERVER
+tmux attach -t delta-loop
+```
+
+If the `delta-loop` session already exists, do not create another one. Attach to it with the command above. You can
+also create the session in the background from your computer:
+
+```bash
+ssh YOUR_SERVER \
+  "tmux has-session -t delta-loop 2>/dev/null || \
+   tmux new-session -d -s delta-loop \
+   '$HOME/.local/bin/delta-loop --host 127.0.0.1 --port 4317 --no-open'"
+```
+
+In a terminal on your own computer, create the encrypted SSH tunnel:
 
 ```bash
 ssh -N -L 4317:127.0.0.1:4317 YOUR_SERVER
@@ -265,7 +289,12 @@ ssh -N -L 4317:127.0.0.1:4317 YOUR_SERVER
 Then open [http://127.0.0.1:4317](http://127.0.0.1:4317) in the browser on your computer. Although the address
 looks local, the page and Delta Loop process are running on the remote server through the SSH tunnel.
 
-After installation, you can start Delta Loop and the tunnel together with one command from your computer:
+The tunnel command stays in the foreground. If your network changes, your computer sleeps, or that SSH connection
+closes, the browser will temporarily lose access. Delta Loop itself continues running inside `tmux`; rerun the
+tunnel command and reload the page to reconnect.
+
+For a short session where you do not need Delta Loop to survive disconnection, you can start the app and tunnel
+together with one command from your computer:
 
 ```bash
 ssh -t -L 4317:127.0.0.1:4317 YOUR_SERVER \
@@ -275,6 +304,10 @@ ssh -t -L 4317:127.0.0.1:4317 YOUR_SERVER \
 In this arrangement, select **This computer** on Delta Loop's Compute page. Here, “this computer” means the remote
 server where Delta Loop is running. Project paths shown in the UI must also be paths on that server. Delta Loop's
 saved state is stored in `~/.delta-loop/` on the server.
+
+`tmux` survives an SSH disconnection, but it does not survive a server reboot. If the server permits user services,
+a user `systemd` service can provide automatic restart after reboot. On managed clusters, ask the administrator
+before creating either a persistent login-node process or a user service.
 
 Keep `--host 127.0.0.1`. Do not bind Delta Loop to `0.0.0.0` or open port 4317 in the server firewall; the SSH
 tunnel provides access without exposing the web page to the network. If port 4317 is already used on your computer,
