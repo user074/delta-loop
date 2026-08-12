@@ -72,6 +72,7 @@ delta compute inspect --local
 delta compute inspect --host lab-gpu --project ~/projects/my-research
 delta compute set --kind ssh --name "Lab GPU server" --host lab-gpu --project ~/projects/my-research --runs ~/.delta-loop/runs --setup "source .venv/bin/activate" --gpus 0 --max-parallel 1
 delta compute check
+delta compute reset
 delta work start --approach APPROACH_ID --title "Small comparison" --goal "Test the smallest useful difference" --steps "Run the matched comparison once" --measure "Difference in the primary metric" --command "python experiments/quick_test.py --output {output_dir}"
 delta work show
 delta work cancel RUN_ID
@@ -105,6 +106,10 @@ back automatically.
 The **Set up with Codex** panel first asks whether work should run on this computer or a remote server, so the agent
 starts with the right setup process. The local path inspects the current project and machine. The remote path asks
 for an SSH host and project folder before connecting.
+
+Use **Reset setup** on the Compute page, or `delta compute reset`, to clear the saved location and its inspection.
+This does not delete run history, output, policy rules, or research files. A new local or remote choice is required
+before another run can start.
 
 The remote project and its Python environment should already exist. Codex
 runs one bounded, read-only `delta compute inspect` first. That check reports objective facts such as the project and
