@@ -1,6 +1,6 @@
-import { ArrowRight, BookOpen, GitBranch, Import, Play, RefreshCw, RotateCcw, Server, ShieldCheck, SquareTerminal, X } from "lucide-react";
+import { ArrowRight, BookOpen, Computer, GitBranch, Import, Play, RefreshCw, RotateCcw, Server, ShieldCheck, SquareTerminal, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { createRemoteWorkspace, getWorkspace, importWorkspace, listWorkspaces } from "./api";
+import { createRemoteWorkspace, getWorkspace, importWorkspace, listComputeProfiles, listWorkspaces } from "./api";
 import type { DiscussionRequest } from "./discussions";
 import { generalPolicyDiscussion, projectSetupDiscussion, remoteProjectSetupDiscussion } from "./discussions";
 import HomePage from "./HomePage";
@@ -8,7 +8,7 @@ import ComputePage from "./ComputePage";
 import PolicyPage from "./PolicyPage";
 import ResearchPage from "./ResearchPage";
 import RulesDrawer from "./RulesDrawer";
-import type { ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
+import type { ComputeProfile, ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
 
 type View = "home" | "research" | "policy" | "compute";
 type ImportMode = "choose" | "local";
@@ -45,6 +45,8 @@ export default function App() {
   const [researchStarting, setResearchStarting] = useState(false);
   const [terminalExpanded, setTerminalExpanded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [computeProfiles, setComputeProfiles] = useState<ComputeProfile[]>([]);
+  const [setupProfile, setSetupProfile] = useState<ComputeProfile | null>(null);
 
   const loadInitialWorkspaces = useCallback(() => {
     setInitialLoading(true);
@@ -68,6 +70,10 @@ export default function App() {
     loadInitialWorkspaces();
   }, [loadInitialWorkspaces]);
 
+  useEffect(() => {
+    listComputeProfiles().then(setComputeProfiles).catch(() => setComputeProfiles([]));
+  }, [importOpen, workspace?.compute.last_checked_at]);
+
   const selectedNode = useMemo(
     () => workspace?.nodes.find((node) => node.id === selectedId) ?? null,
     [selectedId, workspace],
@@ -80,11 +86,11 @@ export default function App() {
     setDiscussion({ ...request, id: Date.now() });
   }, []);
 
-  const setupDiscussion = useCallback((project: Workspace) => (
+  const setupDiscussion = useCallback((project: Workspace, profile = setupProfile) => (
     project.project_source === "remote"
-      ? remoteProjectSetupDiscussion(project)
-      : projectSetupDiscussion(project)
-  ), []);
+      ? remoteProjectSetupDiscussion(project, profile?.kind === "ssh" ? profile : undefined)
+      : projectSetupDiscussion(project, profile?.kind === "local" ? profile : undefined)
+  ), [setupProfile]);
 
   const startOrOpenResearch = useCallback(() => {
     if (workspace?.setup_status === "needs-setup") {
@@ -133,7 +139,7 @@ export default function App() {
       setImportOpen(false);
       setView("home");
       if (imported.setup_status === "needs-setup") {
-        openDiscussion(setupDiscussion(imported));
+        openDiscussion(setupDiscussion(imported, setupProfile));
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open the project.");
@@ -142,7 +148,7 @@ export default function App() {
     }
   }
 
-  async function handleRemoteProject() {
+  async function handleRemoteProject(profile: ComputeProfile | null = null) {
     setBusy(true);
     setError("");
     try {
@@ -151,7 +157,8 @@ export default function App() {
       setSelectedId(created.nodes[0]?.id ?? null);
       setImportOpen(false);
       setView("home");
-      openDiscussion(remoteProjectSetupDiscussion(created));
+      setSetupProfile(profile);
+      openDiscussion(remoteProjectSetupDiscussion(created, profile ?? undefined));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start remote setup.");
     } finally {
@@ -162,6 +169,7 @@ export default function App() {
   function openProjectChooser() {
     setImportMode("choose");
     setImportPath("");
+    setSetupProfile(null);
     setError("");
     setImportOpen(true);
   }
@@ -305,28 +313,50 @@ export default function App() {
               <h2>Where is your project?</h2>
               <p>Choose where the research code already lives. Delta Loop will help with the rest.</p>
               <div className="project-location-choices">
-                <button type="button" className="project-location-choice" onClick={() => setImportMode("local")} disabled={busy}>
+                <button type="button" className="project-location-choice" onClick={() => { setSetupProfile(null); setImportMode("local"); }} disabled={busy}>
                   <span className="project-location-icon"><Import size={21} /></span>
                   <span><strong>This computer</strong><small>Choose a folder already on this computer.</small></span>
                   <ArrowRight size={18} />
                 </button>
-                <button type="button" className="project-location-choice" onClick={handleRemoteProject} disabled={busy}>
+                <button type="button" className="project-location-choice" onClick={() => handleRemoteProject()} disabled={busy}>
                   <span className="project-location-icon remote"><Server size={21} /></span>
                   <span><strong>Remote server</strong><small>Tell Codex which SSH connection and project folder to use.</small></span>
                   {busy ? <RefreshCw className="spin" size={18} /> : <ArrowRight size={18} />}
                 </button>
               </div>
+              {computeProfiles.length > 0 && (
+                <div className="known-machine-picker">
+                  <div><strong>Machines you already set up</strong><small>Reuse the connection and hardware settings. The new project is still checked separately.</small></div>
+                  <div className="known-machine-list">
+                    {computeProfiles.map((profile) => (
+                      <button
+                        type="button"
+                        key={profile.id}
+                        onClick={() => profile.kind === "local"
+                          ? (setSetupProfile(profile), setImportMode("local"))
+                          : handleRemoteProject(profile)}
+                        disabled={busy}
+                      >
+                        {profile.kind === "local" ? <Computer size={17} /> : <Server size={17} />}
+                        <span><strong>{profile.name}</strong><small>{profile.kind === "ssh" ? profile.ssh_host : "This computer"} · used by {profile.source_projects.join(", ")}</small></span>
+                        <ArrowRight size={16} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {error && <div className="form-error">{error}</div>}
               <p className="first-run-note">During setup, Delta Loop reads only what it needs and does not change your research code.</p>
             </div>
           ) : (
             <form className="import-card" onSubmit={handleImport}>
               {workspace && <button type="button" className="modal-close" aria-label="Close import" onClick={() => setImportOpen(false)}><X size={18} /></button>}
-              <button type="button" className="modal-back-button" onClick={() => { setImportMode("choose"); setError(""); }}>← Back</button>
+              <button type="button" className="modal-back-button" onClick={() => { setImportMode("choose"); setSetupProfile(null); setError(""); }}>← Back</button>
               <div className="import-icon"><Import size={22} /></div>
               <div className="section-kicker">This computer</div>
               <h2>Choose your research folder</h2>
               <p>Any existing research folder works. Codex will help set it up if it has not used Delta Loop before.</p>
+              {setupProfile && <p className="selected-machine-note"><Computer size={14} /> Reusing this computer's checked hardware and your usual limits.</p>}
               <label htmlFor="project-path">Project folder</label>
               <input id="project-path" autoFocus value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="/path/to/research-project" />
               {error && <div className="form-error">{error}</div>}

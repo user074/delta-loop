@@ -9,6 +9,7 @@ import {
   GitBranch,
   Github,
   HardDrive,
+  Layers3,
   LoaderCircle,
   MessageCircle,
   Play,
@@ -19,9 +20,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { checkCompute, checkGit, resetCompute, updateCompute } from "./api";
+import { checkCompute, checkGit, listComputeProfiles, resetCompute, updateCompute } from "./api";
 import { computeDiscussion, gitDiscussion, type DiscussionRequest } from "./discussions";
-import type { ComputeConfig, Workspace } from "./types";
+import type { ComputeConfig, ComputeProfile, Workspace } from "./types";
 
 type EditableCompute = Pick<
   ComputeConfig,
@@ -73,10 +74,17 @@ export default function ComputePage({
   const [checkingGit, setCheckingGit] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [profiles, setProfiles] = useState<ComputeProfile[]>([]);
 
   useEffect(() => {
     if (!dirty) setForm(editable(workspace.compute));
   }, [dirty, workspace.compute]);
+
+  useEffect(() => {
+    listComputeProfiles()
+      .then(setProfiles)
+      .catch(() => setProfiles([]));
+  }, [workspace.id, workspace.compute.last_checked_at]);
 
   function change<K extends keyof EditableCompute>(key: K, value: EditableCompute[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -214,6 +222,42 @@ export default function ComputePage({
             <li><span>2</span><div><strong>Ask you</strong><p>Confirm the environment, GPU limits, file locations, and lab or server rules.</p></div></li>
             <li><span>3</span><div><strong>Save and prove</strong><p>Save only what you approve, then test the exact environment setup without running an experiment.</p></div></li>
           </ol>
+        </section>
+      )}
+
+      {!ready && profiles.length > 0 && (
+        <section className="compute-reuse">
+          <div className="compute-reuse-head">
+            <Layers3 size={20} />
+            <div>
+              <small>Already known to Delta Loop</small>
+              <h2>Reuse a machine you already set up</h2>
+              <p>Codex will reuse the machine, hardware, and your usual limits, then check only what belongs to this new project.</p>
+            </div>
+          </div>
+          <div className="compute-reuse-list">
+            {profiles.map((profile) => (
+              <article key={profile.id}>
+                <div className="compute-reuse-title">
+                  {profile.kind === "ssh" ? <Server size={18} /> : <Computer size={18} />}
+                  <div>
+                    <strong>{profile.name}</strong>
+                    <small>{profile.kind === "ssh" ? profile.ssh_host : profile.hostname || "This computer"}</small>
+                  </div>
+                </div>
+                <dl>
+                  <div><dt>Hardware</dt><dd>{profile.gpus.length ? `${profile.gpus.length} GPU${profile.gpus.length === 1 ? "" : "s"}` : "No GPU recorded"}{profile.cpu ? ` · ${profile.cpu}` : ""}</dd></div>
+                  <div><dt>Usual limits</dt><dd>{profile.gpu_devices ? `GPU ${profile.gpu_devices}` : "No GPU limit"} · {profile.max_parallel} run{profile.max_parallel === 1 ? "" : "s"} at once</dd></div>
+                  <div><dt>Used by</dt><dd>{profile.source_projects.join(", ")}</dd></div>
+                  <div><dt>Checked</dt><dd>{new Date(profile.last_checked_at).toLocaleString()}</dd></div>
+                </dl>
+                <button onClick={() => onDiscuss(computeDiscussion(workspace, profile.kind, profile))}>
+                  <MessageCircle size={14} /> Use with Codex
+                </button>
+              </article>
+            ))}
+          </div>
+          <p className="compute-reuse-boundary"><ShieldCheck size={13} /> The project folder, environment, run and output folders, repository, branch, and push permission are still checked for each project.</p>
         </section>
       )}
 
@@ -405,6 +449,11 @@ export default function ComputePage({
               <MessageCircle size={14} /> Chat with Codex
             </button>
           </div>
+        </div>
+
+        <div className="git-shared-machine-note">
+          <Github size={16} />
+          <p><strong>The machine's Git and GitHub account is shared.</strong> Git identity, credentials, and installed tools already available on this machine do not need to be set up again. Delta Loop still checks this project's repository, branch, remote, and push permission separately.</p>
         </div>
 
         <div className="git-location-grid">

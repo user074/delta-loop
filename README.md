@@ -69,6 +69,11 @@ Finishing setup requires an actual compute check and an actual Git inspection. I
 summary, literature list, run folders, and a readable record of everything agreed during setup. The Home page keeps
 that record available under **Starting setup**.
 
+After a machine or SSH server passes its compute check, Delta Loop offers it when another project is opened on the
+same Delta Loop installation. It reuses the machine name, SSH alias, known hardware, GPU limit, usual concurrency,
+and Git tools available to that user. Codex still checks the new project's folder, Python environment, run and
+output folders, Git repository, branch, and push permission; those settings are never copied from another project.
+
 ## What the POC can do
 
 - Open an existing research project on this computer or an SSH server; import its `STATE.md` when present, or let Codex set it up when no state exists
@@ -87,6 +92,7 @@ that record available under **Starting setup**.
 - Start a focused agent chat from configuration that needs discussion; simple choices stay directly editable
 - Run an approved local command and keep its hidden detailed plan, output, and review together
 - Choose whether research commands run locally or on one remote server through the user's existing SSH setup
+- Reuse a previously checked computer or SSH server when opening another project, without copying project-specific paths or Git permissions
 - Check the remote project, Python, Git, and GPUs without starting research work
 - See the actual research repository separately from Delta Loop's local control folder, and check its branch, remote, upstream, and changed files without fetching
 - Let Codex manage reviewed commits and optional pushes only under explicit, checked Git policy rules
@@ -214,6 +220,12 @@ The **Set up with Codex** panel first asks whether work should run on this compu
 starts with the right setup process. The local path inspects the current project and machine. The remote path asks
 for an SSH host and project folder before connecting.
 
+If the same computer or server was checked for another project, the Compute page also shows it under **Reuse a
+machine you already set up**. Choosing **Use with Codex** keeps the known machine facts and your usual resource
+limits, then concentrates the setup conversation on the new project. Git identity, credentials, and installed tools
+already available to that user on the machine are naturally shared. Repository location, environment activation,
+run and output folders, branch, remote, and permission to push remain project-specific and are checked again.
+
 Use **Reset setup** on the Compute page, or `delta compute reset`, to clear the saved location and its inspection.
 This does not delete run history, output, policy rules, or research files. A new local or remote choice is required
 before another run can start.
@@ -329,8 +341,9 @@ Ending a terminal from the UI still ends that tmux session intentionally.
 
 Every running Delta Loop session appears as a tab in the terminal panel. Use **New → Agent chat** to start another
 Codex conversation or **New → Terminal** for another command line, then click the tabs to move between them. Hiding
-the panel leaves every tab running. **End** stops only the selected tab; **Stop all** stops every Delta Loop terminal
-for the current project but does not delete Codex's saved conversation history.
+the panel leaves every tab running and Delta Loop continues recording its output. Use the mouse wheel or trackpad to
+read earlier messages; **Latest message** returns to the live output. **End** stops only the selected tab; **Stop all**
+stops every Delta Loop terminal for the current project but does not delete Codex's saved conversation history.
 
 For a short session where you do not need Delta Loop to survive disconnection, you can start the app and tunnel
 together with one command from your computer:

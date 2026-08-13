@@ -1,6 +1,7 @@
 import type {
   AgentRule,
   ComputeConfig,
+  ComputeProfile,
   TerminalSessionInfo,
   Workspace,
 } from "./types";
@@ -31,6 +32,10 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 60000): 
 
 export function listWorkspaces(): Promise<Workspace[]> {
   return request("/api/workspaces", undefined, 8000);
+}
+
+export function listComputeProfiles(): Promise<ComputeProfile[]> {
+  return request("/api/compute-profiles", undefined, 8000);
 }
 
 export function getWorkspace(workspaceId: string): Promise<Workspace> {

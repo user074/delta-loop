@@ -28,6 +28,7 @@ from .models import (
     ComputeConfigRequest,
     ComputeInspectRequest,
     ComputeInspection,
+    ComputeProfile,
     GitRepositoryStatus,
     HarnessInfo,
     ImportRequest,
@@ -179,6 +180,49 @@ def create_app(
             save_with_policy(workspace)
         return workspace
 
+    def reusable_compute_profiles() -> list[ComputeProfile]:
+        profiles: dict[str, ComputeProfile] = {}
+        for workspace in store.list():
+            compute = workspace.compute
+            if not compute.configured or compute.status != "ready" or not compute.last_checked_at:
+                continue
+            key = "local" if compute.kind == "local" else f"ssh:{compute.ssh_host.strip()}"
+            if compute.kind == "ssh" and not compute.ssh_host.strip():
+                continue
+            inspection = workspace.compute_inspection
+            candidate = ComputeProfile(
+                id=key,
+                kind=compute.kind,
+                name=compute.name or ("This computer" if compute.kind == "local" else compute.ssh_host),
+                ssh_host=compute.ssh_host,
+                gpu_devices=compute.gpu_devices,
+                max_parallel=compute.max_parallel,
+                last_checked_at=compute.last_checked_at,
+                detected_git=compute.detected_git,
+                hostname=inspection.hostname if inspection else "",
+                operating_system=inspection.operating_system if inspection else "",
+                scheduler=inspection.scheduler if inspection else "none",
+                gpus=(inspection.gpus if inspection and inspection.gpus else compute.detected_gpus),
+                cpu=inspection.cpu if inspection else "",
+                memory=inspection.memory if inspection else "",
+                environment_tools=inspection.environment_tools if inspection else [],
+                source_projects=[workspace.name],
+            )
+            existing = profiles.get(key)
+            if not existing:
+                profiles[key] = candidate
+                continue
+            source_projects = list(dict.fromkeys([*existing.source_projects, workspace.name]))
+            if candidate.last_checked_at > existing.last_checked_at:
+                candidate.source_projects = source_projects
+                profiles[key] = candidate
+            else:
+                existing.source_projects = source_projects
+        return sorted(
+            profiles.values(),
+            key=lambda profile: (profile.kind != "local", profile.name.lower()),
+        )
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -186,6 +230,10 @@ def create_app(
     @app.get("/api/protocols")
     def list_protocols():
         return list(protocols.values())
+
+    @app.get("/api/compute-profiles", response_model=list[ComputeProfile])
+    def list_compute_profiles() -> list[ComputeProfile]:
+        return reusable_compute_profiles()
 
     @app.get("/api/workspaces", response_model=list[ProjectSnapshot])
     def list_workspaces() -> list[ProjectSnapshot]:
@@ -945,8 +993,11 @@ def create_app(
             return
 
         async def send_output() -> None:
+            transcript, cursor = await asyncio.to_thread(terminals.transcript, session_id)
+            if transcript:
+                await websocket.send_bytes(transcript)
             while True:
-                data = terminals.read(session_id)
+                data, cursor = terminals.output_since(session_id, cursor)
                 if data:
                     await websocket.send_bytes(data)
                 elif terminals.get(session_id) and terminals.get(session_id).status in {"exited", "lost"}:
@@ -978,6 +1029,8 @@ def create_app(
                     )
                 elif payload.get("type") == "input":
                     terminals.write(session_id, str(payload.get("data", "")).encode())
+                elif payload.get("type") == "latest":
+                    await asyncio.to_thread(terminals.latest, session_id)
 
         sender = asyncio.create_task(send_output())
         receiver = asyncio.create_task(receive_input())

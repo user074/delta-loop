@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import deque
 import fcntl
 import json
 import os
 import pty
+import select
 import signal
 import shlex
 import shutil
@@ -27,6 +29,9 @@ DEFAULT_AGENT_COMMAND = (
     "-c 'features.network_proxy.domains={ \"127.0.0.1\" = \"allow\" }'"
 )
 
+TRANSCRIPT_LIMIT_BYTES = 16 * 1024 * 1024
+TRANSCRIPT_TRIMMED_MESSAGE = b"\x1b[0m\r\n[Older terminal output was trimmed.]\r\n"
+
 
 class TerminalFailure(ValueError):
     pass
@@ -45,9 +50,40 @@ class _TerminalRecord:
         self.process = process
         self.master_fd = master_fd
         self.tmux_session = tmux_session
-        self.replay = replay
-        self.input_attached = False
+        self.output_chunks: deque[tuple[int, bytes]] = deque()
+        self.output_bytes = 0
+        self.next_sequence = 0
+        self.legacy_cursor = 0
+        self.output_truncated = False
         self.lock = threading.RLock()
+        if replay:
+            self.append_output(replay)
+        self.input_attached = False
+
+    def append_output(self, data: bytes) -> None:
+        if not data:
+            return
+        with self.lock:
+            self.output_chunks.append((self.next_sequence, data))
+            self.next_sequence += 1
+            self.output_bytes += len(data)
+            while self.output_bytes > TRANSCRIPT_LIMIT_BYTES and len(self.output_chunks) > 1:
+                _, removed = self.output_chunks.popleft()
+                self.output_bytes -= len(removed)
+                self.output_truncated = True
+
+    def snapshot(self) -> tuple[bytes, int]:
+        with self.lock:
+            prefix = TRANSCRIPT_TRIMMED_MESSAGE if self.output_truncated else b""
+            return prefix + b"".join(data for _, data in self.output_chunks), self.next_sequence
+
+    def output_since(self, sequence: int) -> tuple[bytes, int]:
+        with self.lock:
+            first_sequence = self.output_chunks[0][0] if self.output_chunks else self.next_sequence
+            if sequence < first_sequence:
+                return self.snapshot()
+            data = b"".join(data for item_sequence, data in self.output_chunks if item_sequence >= sequence)
+            return data, self.next_sequence
 
 
 class TerminalManager:
@@ -122,6 +158,7 @@ class TerminalManager:
             working_directory=str(root),
             kind=kind,
             title=available_title,
+            persistent=bool(self._tmux),
         )
         if self._tmux:
             record = self._start_tmux(info, command, env)
@@ -131,6 +168,7 @@ class TerminalManager:
         with self._lock:
             self._sessions[session_id] = record
             self._save()
+        self._start_reader(record)
         return info
 
     def list(self, workspace_id: str) -> list[TerminalSessionInfo]:
@@ -160,21 +198,24 @@ class TerminalManager:
     def read(self, session_id: str) -> bytes:
         record = self._record(session_id)
         with record.lock:
-            if record.replay:
-                data = record.replay
-                record.replay = b""
-                return data
-        try:
-            data = os.read(record.master_fd, 65536)
-        except BlockingIOError:
-            return b""
-        except OSError:
-            if not record.tmux_session:
-                record.info.status = "exited"
-            return b""
-        if data:
-            record.info.last_active_at = now_iso()
+            cursor = record.legacy_cursor
+        data, next_cursor = record.output_since(cursor)
+        with record.lock:
+            record.legacy_cursor = next_cursor
         return data
+
+    def transcript(self, session_id: str) -> tuple[bytes, int]:
+        record = self._record(session_id)
+        if record.tmux_session and self._tmux_alive(record.tmux_session):
+            with record.lock:
+                cursor = record.next_sequence
+            captured = self._capture_tmux(record.tmux_session)
+            if captured:
+                return captured, cursor
+        return record.snapshot()
+
+    def output_since(self, session_id: str, sequence: int) -> tuple[bytes, int]:
+        return self._record(session_id).output_since(sequence)
 
     def write(self, session_id: str, data: bytes) -> None:
         record = self._record(session_id)
@@ -187,6 +228,17 @@ class TerminalManager:
     def resize(self, session_id: str, columns: int, rows: int) -> None:
         record = self._record(session_id)
         self._set_size(record.master_fd, columns, rows)
+
+    def latest(self, session_id: str) -> None:
+        record = self._record(session_id)
+        if not record.tmux_session or not self._tmux:
+            return
+        subprocess.run(
+            [self._tmux, "send-keys", "-X", "-t", f"{record.tmux_session}:0.0", "cancel"],
+            capture_output=True,
+            check=False,
+            timeout=3,
+        )
 
     def close(self, session_id: str) -> None:
         record = self._record(session_id)
@@ -257,6 +309,43 @@ class TerminalManager:
         if changed:
             self._save()
 
+    def _start_reader(self, record: _TerminalRecord) -> None:
+        master_fd = record.master_fd
+        process = record.process
+
+        def pump() -> None:
+            while True:
+                with record.lock:
+                    if record.master_fd != master_fd:
+                        return
+                try:
+                    ready, _, _ = select.select([master_fd], [], [], 0.1)
+                except (OSError, ValueError):
+                    return
+                if not ready:
+                    if process.poll() is not None:
+                        break
+                    continue
+                try:
+                    data = os.read(master_fd, 65536)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    break
+                if not data:
+                    break
+                record.append_output(data)
+                record.info.last_active_at = now_iso()
+            if not record.tmux_session and process.poll() is not None:
+                record.info.status = "exited"
+                self._save()
+
+        threading.Thread(
+            target=pump,
+            name=f"delta-loop-output-{record.info.id}",
+            daemon=True,
+        ).start()
+
     def _spawn(
         self,
         command: list[str],
@@ -321,6 +410,7 @@ class TerminalManager:
         if started.returncode != 0:
             detail = started.stderr.strip() or "tmux could not start the terminal."
             raise TerminalFailure(detail)
+        self._configure_tmux(tmux_session)
         try:
             process, master_fd = self._attach_tmux(tmux_session, Path(info.working_directory), env)
             self._wait_tmux_attached(tmux_session, process)
@@ -372,6 +462,7 @@ class TerminalManager:
             record.master_fd = master_fd
             record.input_attached = False
             record.info.status = "active"
+        self._start_reader(record)
 
     def _tmux_alive(self, tmux_session: str) -> bool:
         if not self._tmux:
@@ -386,6 +477,21 @@ class TerminalManager:
         except (OSError, subprocess.TimeoutExpired):
             return False
         return checked.returncode == 0
+
+    def _configure_tmux(self, tmux_session: str) -> None:
+        if not self._tmux:
+            return
+        for option, value in (
+            ("history-limit", "50000"),
+            ("mouse", "on"),
+            ("status", "off"),
+        ):
+            subprocess.run(
+                [self._tmux, "set-option", "-t", tmux_session, option, value],
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
 
     def _wait_tmux_attached(
         self,
@@ -421,7 +527,7 @@ class TerminalManager:
             return b""
         try:
             captured = subprocess.run(
-                [self._tmux, "capture-pane", "-p", "-J", "-S", "-2000", "-t", tmux_session],
+                [self._tmux, "capture-pane", "-p", "-J", "-S", "-50000", "-t", tmux_session],
                 capture_output=True,
                 check=False,
                 timeout=5,
@@ -430,7 +536,7 @@ class TerminalManager:
             return b""
         if captured.returncode != 0:
             return b""
-        return captured.stdout + (b"\r\n" if captured.stdout else b"")
+        return captured.stdout.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
 
     def _restore(self) -> None:
         if not self._state_path or not self._tmux or not self._state_path.is_file():
@@ -448,18 +554,22 @@ class TerminalManager:
                 root = Path(info.working_directory).expanduser().resolve()
                 if not root.is_dir():
                     continue
+                self._configure_tmux(tmux_session)
                 process, master_fd = self._attach_tmux(tmux_session, root)
                 self._wait_tmux_attached(tmux_session, process)
             except (KeyError, OSError, TerminalFailure, ValueError):
                 continue
             info.status = "active"
-            self._sessions[info.id] = _TerminalRecord(
+            info.persistent = True
+            record = _TerminalRecord(
                 info,
                 process,
                 master_fd,
                 tmux_session=tmux_session,
                 replay=self._capture_tmux(tmux_session),
             )
+            self._sessions[info.id] = record
+            self._start_reader(record)
 
     def _save(self) -> None:
         if not self._state_path:

@@ -78,16 +78,22 @@ function TerminalView({
   onConnectionChange: (state: TerminalConnectionState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const [readingEarlier, setReadingEarlier] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    setReadingEarlier(false);
     const terminal = new Terminal({
       cursorBlink: true,
-      convertEol: true,
+      convertEol: false,
       fontFamily: '"SFMono-Regular", Consolas, monospace',
-      fontSize: 12,
-      lineHeight: 1.25,
-      scrollback: 5000,
+      fontSize: 13,
+      lineHeight: 1.3,
+      scrollback: 50000,
+      scrollOnUserInput: false,
+      smoothScrollDuration: 80,
       theme: {
         background: "#24241f",
         foreground: "#d7d3c9",
@@ -100,10 +106,11 @@ function TerminalView({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(containerRef.current);
+    terminalRef.current = terminal;
     fit.fit();
 
     const socketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const decoder = new TextDecoder();
+    let decoder = new TextDecoder();
     let disposed = false;
     let socket: WebSocket | null = null;
     let retryTimer: number | null = null;
@@ -117,8 +124,14 @@ function TerminalView({
       socket = new WebSocket(
         `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws`,
       );
+      socketRef.current = socket;
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
+        if (retries) {
+          terminal.reset();
+          decoder = new TextDecoder();
+          fit.fit();
+        }
         retries = 0;
         reconnectMessageShown = false;
         onConnectionChange("connected");
@@ -126,7 +139,9 @@ function TerminalView({
         socket?.send(JSON.stringify({ type: "resize", columns: terminal.cols, rows: terminal.rows }));
       };
       socket.onmessage = (event) => {
-        const output = event.data instanceof ArrayBuffer ? decoder.decode(event.data) : String(event.data);
+        const output = event.data instanceof ArrayBuffer
+          ? decoder.decode(event.data, { stream: true })
+          : String(event.data);
         terminal.write(output);
         if (output.includes("[terminal ended]")) terminalEnded = true;
       };
@@ -161,6 +176,46 @@ function TerminalView({
         socket.send(JSON.stringify({ type: "resize", columns: cols, rows }));
       }
     });
+    const scroll = terminal.onScroll(() => {
+      if (!session.persistent) {
+        setReadingEarlier(terminal.buffer.active.viewportY < terminal.buffer.active.baseY);
+      }
+    });
+    let wheelRemainder = 0;
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.deltaY) return;
+      if (session.persistent) {
+        if (event.deltaY < 0) setReadingEarlier(true);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const lines = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL
+        ? event.deltaY / 24
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? event.deltaY * terminal.rows
+          : event.deltaY;
+      wheelRemainder += lines;
+      const wholeLines = wheelRemainder > 0 ? Math.floor(wheelRemainder) : Math.ceil(wheelRemainder);
+      if (wholeLines) {
+        terminal.scrollLines(wholeLines);
+        wheelRemainder -= wholeLines;
+      }
+    };
+    containerRef.current.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (session.persistent) return true;
+      if (event.type !== "keydown" || !event.shiftKey) return true;
+      if (event.key === "ArrowUp") terminal.scrollLines(-3);
+      else if (event.key === "ArrowDown") terminal.scrollLines(3);
+      else if (event.key === "PageUp") terminal.scrollPages(-1);
+      else if (event.key === "PageDown") terminal.scrollPages(1);
+      else if (event.key === "Home") terminal.scrollToTop();
+      else if (event.key === "End") terminal.scrollToBottom();
+      else return true;
+      event.preventDefault();
+      return false;
+    });
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(containerRef.current);
     return () => {
@@ -169,16 +224,38 @@ function TerminalView({
       observer.disconnect();
       input.dispose();
       resize.dispose();
+      scroll.dispose();
+      containerRef.current?.removeEventListener("wheel", handleWheel, { capture: true });
       if (socket) {
         socket.onclose = null;
         socket.onmessage = null;
         socket.close(1000);
       }
+      if (socketRef.current === socket) socketRef.current = null;
+      terminalRef.current = null;
       terminal.dispose();
     };
-  }, [onConnectionChange, onEnded, session.id]);
+  }, [onConnectionChange, onEnded, session.id, session.persistent]);
 
-  return <div className="terminal-screen" ref={containerRef} />;
+  return (
+    <div className="terminal-screen-wrap">
+      <div className="terminal-screen" ref={containerRef} />
+      {readingEarlier && (
+        <button
+          className="terminal-jump-latest"
+          onClick={() => {
+            terminalRef.current?.scrollToBottom();
+            setReadingEarlier(false);
+            if (socketRef.current?.readyState === WebSocket.OPEN) {
+              socketRef.current.send(JSON.stringify({ type: "latest" }));
+            }
+          }}
+        >
+          Latest message
+        </button>
+      )}
+    </div>
+  );
 }
 
 export default function TerminalDock({

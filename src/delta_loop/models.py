@@ -276,6 +276,7 @@ class TerminalSessionInfo(BaseModel):
     working_directory: str
     kind: TerminalKind = "shell"
     title: str = "Terminal"
+    persistent: bool = False
     status: Literal["active", "exited", "lost"] = "active"
     created_at: str = Field(default_factory=now_iso)
     last_active_at: str = Field(default_factory=now_iso)
@@ -363,6 +364,25 @@ class ComputeInspection(BaseModel):
     git_remote: str = ""
     git_status: str = ""
     notes: list[str] = Field(default_factory=list)
+
+
+class ComputeProfile(BaseModel):
+    id: str
+    kind: ComputeKind
+    name: str
+    ssh_host: str = ""
+    gpu_devices: str = ""
+    max_parallel: int = Field(default=1, ge=1, le=16)
+    last_checked_at: str = ""
+    detected_git: str = ""
+    hostname: str = ""
+    operating_system: str = ""
+    scheduler: str = "none"
+    gpus: list[str] = Field(default_factory=list)
+    cpu: str = ""
+    memory: str = ""
+    environment_tools: list[str] = Field(default_factory=list)
+    source_projects: list[str] = Field(default_factory=list)
 
 
 class GitRepositoryStatus(BaseModel):

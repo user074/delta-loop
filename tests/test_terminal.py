@@ -115,6 +115,34 @@ def test_running_terminals_with_the_same_context_get_distinct_titles(tmp_path: P
     manager.close(second.id)
 
 
+def test_terminal_keeps_output_while_no_browser_is_attached(tmp_path: Path) -> None:
+    manager = TerminalManager()
+    session = manager.create("workspace", str(tmp_path), "idea-1")
+    manager.write(session.id, b"printf 'message-before-switch\\n'\n")
+
+    transcript = b""
+    cursor = 0
+    for _ in range(60):
+        transcript, cursor = manager.transcript(session.id)
+        if b"message-before-switch" in transcript:
+            break
+        time.sleep(0.05)
+
+    assert b"message-before-switch" in transcript
+
+    manager.write(session.id, b"printf 'message-after-switch\\n'\n")
+    later_output = b""
+    for _ in range(60):
+        data, cursor = manager.output_since(session.id, cursor)
+        later_output += data
+        if b"message-after-switch" in later_output:
+            break
+        time.sleep(0.05)
+
+    assert b"message-after-switch" in later_output
+    manager.close(session.id)
+
+
 def test_default_agent_runs_without_prompts_inside_the_project() -> None:
     assert "--ask-for-approval never" in DEFAULT_AGENT_COMMAND
     assert "--sandbox workspace-write" in DEFAULT_AGENT_COMMAND
@@ -154,6 +182,8 @@ import sys
 
 root = pathlib.Path(os.environ["FAKE_TMUX_DIR"])
 args = sys.argv[1:]
+with (root / "commands.log").open("a") as log:
+    log.write(" ".join(args) + "\\n")
 command = args[0]
 flag = "-s" if command == "new-session" else "-t"
 name = args[args.index(flag) + 1]
@@ -189,6 +219,7 @@ elif command == "attach-session":
 
     first_manager = TerminalManager(state_path=registry)
     first = first_manager.create("workspace", str(tmp_path), "idea-1")
+    assert first.persistent
     first_manager.write(first.id, b"conversation-before-restart\n")
     time.sleep(0.1)
     first_record = first_manager._sessions[first.id]
@@ -200,5 +231,14 @@ elif command == "attach-session":
 
     assert [item.id for item in restored] == [first.id]
     assert restored[0].status == "active"
+    assert restored[0].persistent
     assert b"conversation-before-restart" in second_manager.read(first.id)
+    captured, _ = second_manager.transcript(first.id)
+    assert b"conversation-before-restart\r\n" in captured
+    second_manager.latest(first.id)
+    commands = (fake_state / "commands.log").read_text(encoding="utf-8")
+    assert "history-limit 50000" in commands
+    assert "mouse on" in commands
+    assert "status off" in commands
+    assert "send-keys -X" in commands
     second_manager.close(first.id)
