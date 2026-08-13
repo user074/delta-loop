@@ -1,9 +1,9 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Box, ChevronDown, ChevronUp, Plug, SquareTerminal, X } from "lucide-react";
+import { Box, ChevronDown, ChevronUp, MessageCircle, Plus, Power, SquareTerminal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { closeTerminal, createTerminal, listTerminals } from "./api";
+import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from "./api";
 import type { DiscussionRequest } from "./discussions";
 import type { ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
 
@@ -53,7 +53,30 @@ function researchStartPrompt(
   return `${RESEARCH_START_PROMPT}\n\n${focusDetails.join("\n")}`;
 }
 
-function TerminalView({ session, onEnded }: { session: TerminalSessionInfo; onEnded: (sessionId: string) => void }) {
+function additionalChatPrompt(workspace: Workspace, focus: ResearchNode | null) {
+  const focusText = focus
+    ? `The researcher opened this additional chat while focused on the ${nodeKindLabels[focus.kind]} "${focus.title}" [${focus.id}]. Use that as context, but do not assume what they want changed.`
+    : "The researcher opened this additional chat from the project without selecting a specific research item.";
+  return [
+    "You are an additional Delta Loop discussion session. This chat runs alongside other terminals; do not stop, replace, or take over another session.",
+    "Run `delta context` first so you understand the current project and active rules.",
+    focusText,
+    "Ask one short question about what the researcher wants to discuss. Do not start experiments or edit the research project until they clearly request work in this chat.",
+    `Project: ${workspace.name}`,
+  ].join("\n\n");
+}
+
+type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "ended";
+
+function TerminalView({
+  session,
+  onEnded,
+  onConnectionChange,
+}: {
+  session: TerminalSessionInfo;
+  onEnded: (sessionId: string) => void;
+  onConnectionChange: (state: TerminalConnectionState) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,33 +103,61 @@ function TerminalView({ session, onEnded }: { session: TerminalSessionInfo; onEn
     fit.fit();
 
     const socketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const socket = new WebSocket(
-      `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws`,
-    );
-    socket.binaryType = "arraybuffer";
     const decoder = new TextDecoder();
     let disposed = false;
-    socket.onopen = () => {
-      terminal.focus();
-      socket.send(JSON.stringify({ type: "resize", columns: terminal.cols, rows: terminal.rows }));
-    };
-    socket.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) terminal.write(decoder.decode(event.data));
-      else terminal.write(String(event.data));
-    };
-    socket.onclose = (event) => {
+    let socket: WebSocket | null = null;
+    let retryTimer: number | null = null;
+    let retries = 0;
+    let terminalEnded = false;
+    let reconnectMessageShown = false;
+
+    const connect = () => {
       if (disposed) return;
-      if (event.code === 4409) terminal.writeln("\r\nThis terminal is already open somewhere else.");
-      else if (event.code !== 1000) terminal.writeln("\r\nTerminal connection closed.");
-      onEnded(session.id);
+      onConnectionChange(retries ? "reconnecting" : "connecting");
+      socket = new WebSocket(
+        `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws`,
+      );
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        retries = 0;
+        reconnectMessageShown = false;
+        onConnectionChange("connected");
+        terminal.focus();
+        socket?.send(JSON.stringify({ type: "resize", columns: terminal.cols, rows: terminal.rows }));
+      };
+      socket.onmessage = (event) => {
+        const output = event.data instanceof ArrayBuffer ? decoder.decode(event.data) : String(event.data);
+        terminal.write(output);
+        if (output.includes("[terminal ended]")) terminalEnded = true;
+      };
+      socket.onclose = (event) => {
+        if (disposed) return;
+        if (terminalEnded || event.code === 4404) {
+          if (event.code === 4404) terminal.writeln("\r\nThis terminal was not found after the server restarted.");
+          onConnectionChange("ended");
+          onEnded(session.id);
+          return;
+        }
+        if (!reconnectMessageShown) {
+          terminal.writeln(event.code === 4409
+            ? "\r\nThe terminal is still attached elsewhere. Retrying…"
+            : "\r\nConnection interrupted. Reconnecting…");
+          reconnectMessageShown = true;
+        }
+        onConnectionChange("reconnecting");
+        retries += 1;
+        const delay = Math.min(8000, 500 * (2 ** Math.min(retries, 4)));
+        retryTimer = window.setTimeout(connect, delay);
+      };
     };
+    connect();
     const input = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
     const resize = terminal.onResize(({ cols, rows }) => {
-      if (socket.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "resize", columns: cols, rows }));
       }
     });
@@ -114,15 +165,18 @@ function TerminalView({ session, onEnded }: { session: TerminalSessionInfo; onEn
     observer.observe(containerRef.current);
     return () => {
       disposed = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
       observer.disconnect();
       input.dispose();
       resize.dispose();
-      socket.onclose = null;
-      socket.onmessage = null;
-      socket.close(1000);
+      if (socket) {
+        socket.onclose = null;
+        socket.onmessage = null;
+        socket.close(1000);
+      }
       terminal.dispose();
     };
-  }, [onEnded, session.id]);
+  }, [onConnectionChange, onEnded, session.id]);
 
   return <div className="terminal-screen" ref={containerRef} />;
 }
@@ -150,15 +204,24 @@ export default function TerminalDock({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [activeTopic, setActiveTopic] = useState<string | null>(null);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [confirmStopAll, setConfirmStopAll] = useState(false);
+  const [connectionState, setConnectionState] = useState<TerminalConnectionState>("ended");
   const handledDiscussion = useRef<number | null>(null);
   const handledResearchStart = useRef<number | null>(null);
   const openingDiscussion = useRef(false);
   const openingResearch = useRef(false);
   const active = sessions.find((session) => session.id === activeId) ?? null;
+  const runningSessions = useMemo(
+    () => sessions
+      .filter((session) => session.status === "active")
+      .slice()
+      .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    [sessions],
+  );
   const latestResearchSession = useMemo(
     () => sessions
-      .filter((session) => session.kind === "research")
+      .filter((session) => session.kind === "research" && session.status === "active")
       .slice()
       .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null,
     [sessions],
@@ -172,30 +235,36 @@ export default function TerminalDock({
     onExpandedChange(expanded);
   }, [expanded, onExpandedChange]);
 
-  useEffect(() => {
-    listTerminals(workspace.id)
+  const refreshSessions = useCallback(() => {
+    return listTerminals(workspace.id)
       .then((items) => {
         setSessions(items);
         if (openingDiscussion.current || openingResearch.current) return;
-        const matching = items.find(
-          (item) => item.kind === "shell" && item.status === "active" && item.node_id === selectedNode?.id,
-        );
-        setActiveId((current) => items.some((item) => item.id === current && item.status === "active") ? current : matching?.id ?? null);
-        if (!matching) setActiveTopic(null);
+        const running = items
+          .filter((item) => item.status === "active")
+          .sort((a, b) => b.created_at.localeCompare(a.created_at));
+        setActiveId((current) => items.some((item) => item.id === current && item.status === "active")
+          ? current
+          : running[0]?.id ?? null);
       })
       .catch((caught: unknown) => onError(caught instanceof Error ? caught.message : "Could not load terminals."));
-  }, [onError, selectedNode?.id, workspace.id]);
+  }, [onError, workspace.id]);
+
+  useEffect(() => {
+    refreshSessions();
+    const timer = window.setInterval(refreshSessions, 3000);
+    return () => window.clearInterval(timer);
+  }, [refreshSessions]);
 
   useEffect(() => {
     if (!discussion || handledDiscussion.current === discussion.id) return;
     handledDiscussion.current = discussion.id;
     openingDiscussion.current = true;
     setBusy(true);
-    createTerminal(workspace.id, discussion.nodeId, discussion.prompt, "discussion")
+    createTerminal(workspace.id, discussion.nodeId, discussion.prompt, "discussion", discussion.topic)
       .then((session) => {
         setSessions((current) => [...current, session]);
         setActiveId(session.id);
-        setActiveTopic(discussion.topic);
         setExpanded(true);
       })
       .catch((caught: unknown) => onError(caught instanceof Error ? caught.message : "Could not open the agent chat."))
@@ -221,13 +290,13 @@ export default function TerminalDock({
         requestedFocus?.id ?? null,
         researchStartPrompt(workspace, researchStartRequest, requestedFocus),
         "research",
+        requestedFocus ? `Research · ${requestedFocus.title}` : "Research · whole map",
       ))
       .then((session) => {
         setSessions((current) => current.some((item) => item.id === session.id)
           ? current.map((item) => item.id === session.id ? session : item)
           : [...current, session]);
         setActiveId(session.id);
-        setActiveTopic(null);
         setExpanded(true);
       })
       .catch((caught: unknown) => onError(caught instanceof Error ? caught.message : "Could not start the research loop."))
@@ -238,16 +307,17 @@ export default function TerminalDock({
       });
   }, [onError, onResearchStartFinished, researchStartRequest, sessions, workspace]);
 
-  async function openTerminal() {
+  async function openTerminal(alwaysNew = false) {
     setBusy(true);
+    setNewMenuOpen(false);
     try {
-      const existing = sessions.find(
+      const existing = !alwaysNew && sessions.find(
         (session) => session.kind === "shell" && session.status === "active" && session.node_id === selectedNode?.id,
       );
-      const session = existing ?? (await createTerminal(workspace.id, selectedNode?.id ?? null));
+      const title = selectedNode ? `Terminal · ${selectedNode.title}` : "Terminal · project";
+      const session = existing || (await createTerminal(workspace.id, selectedNode?.id ?? null, undefined, "shell", title));
       if (!existing) setSessions((current) => [...current, session]);
       setActiveId(session.id);
-      setActiveTopic(null);
       setExpanded(true);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : "Could not open the terminal.");
@@ -256,60 +326,149 @@ export default function TerminalDock({
     }
   }
 
-  async function endTerminal() {
-    if (!active) return;
-    await closeTerminal(active.id);
-    setSessions((current) => current.map((item) => item.id === active.id ? { ...item, status: "exited" } : item));
-    setActiveId(null);
-    setActiveTopic(null);
-    setExpanded(false);
+  async function openAgentChat() {
+    setBusy(true);
+    setNewMenuOpen(false);
+    try {
+      const title = selectedNode ? `Chat · ${selectedNode.title}` : "Chat · project";
+      const session = await createTerminal(
+        workspace.id,
+        selectedNode?.id ?? null,
+        additionalChatPrompt(workspace, selectedNode),
+        "discussion",
+        title,
+      );
+      setSessions((current) => [...current, session]);
+      setActiveId(session.id);
+      setExpanded(true);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : "Could not open a new agent chat.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function endTerminal(sessionId = active?.id) {
+    if (!sessionId) return;
+    await closeTerminal(sessionId);
+    const remaining = runningSessions.filter((item) => item.id !== sessionId);
+    setSessions((current) => current.map((item) => item.id === sessionId ? { ...item, status: "exited" } : item));
+    setActiveId((current) => current === sessionId ? remaining.at(-1)?.id ?? null : current);
+    if (!remaining.length) setExpanded(false);
+  }
+
+  async function stopAll() {
+    setBusy(true);
+    try {
+      await closeAllTerminals(workspace.id);
+      setSessions((current) => current.map((item) => item.status === "active" ? { ...item, status: "exited" } : item));
+      setActiveId(null);
+      setExpanded(false);
+      setConfirmStopAll(false);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : "Could not stop all project terminals.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const markTerminalEnded = useCallback((sessionId: string) => {
-    setSessions((current) => current.map((item) => item.id === sessionId ? { ...item, status: "exited" } : item));
-    setActiveId((current) => current === sessionId ? null : current);
-    setActiveTopic(null);
-    setExpanded(false);
+    setSessions((current) => {
+      const updated = current.map((item) => item.id === sessionId ? { ...item, status: "exited" as const } : item);
+      const remaining = updated.filter((item) => item.status === "active");
+      setActiveId((currentId) => currentId === sessionId ? remaining.at(-1)?.id ?? null : currentId);
+      if (!remaining.length) setExpanded(false);
+      return updated;
+    });
   }, []);
 
-  const activeResearchFocus = active?.kind === "research" && active.node_id
-    ? workspace.nodes.find((node) => node.id === active.node_id) ?? null
-    : null;
-
   return (
-    <section className={`terminal-dock ${expanded ? "expanded" : ""}`}>
+    <section className={`terminal-dock ${expanded ? "expanded" : ""} ${runningSessions.length ? "has-sessions" : ""}`}>
       <div className="terminal-bar">
-        <div>
+        <div className="terminal-heading">
           <SquareTerminal size={15} />
-          {active?.kind === "research" ? "Research session" : active?.kind === "discussion" || activeTopic ? "Agent chat" : "Terminal"}
+          <strong>Terminals</strong>
           <span>·</span>
-          {active?.kind === "research"
-            ? activeResearchFocus ? `Focus: ${activeResearchFocus.title}` : "Whole research map"
-            : activeTopic ?? selectedNode?.title ?? "No idea selected"}
+          <span>{runningSessions.length} running</span>
+          {active && <><span>·</span><span className="terminal-active-title">{active.title}</span></>}
         </div>
         <div className="terminal-controls">
+          <div className="terminal-new-control">
+            <button onClick={() => setNewMenuOpen((value) => !value)} disabled={busy}>
+              <Plus size={14} /> New
+            </button>
+            {newMenuOpen && (
+              <div className="terminal-new-menu">
+                <button onClick={openAgentChat}>
+                  <MessageCircle size={15} />
+                  <span><strong>Agent chat</strong><small>Start another Codex conversation</small></span>
+                </button>
+                <button onClick={() => openTerminal(true)}>
+                  <SquareTerminal size={15} />
+                  <span><strong>Terminal</strong><small>Open another command line</small></span>
+                </button>
+              </div>
+            )}
+          </div>
           {active ? (
             <>
-              <span className="terminal-state connected"><span /> connected</span>
+              <span className={`terminal-state ${expanded ? connectionState : "connected"}`}>
+                <span /> {expanded ? connectionState : "running"}
+              </span>
               <button onClick={() => setExpanded((value) => !value)}>
                 {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 {expanded ? "Hide" : "Show"}
               </button>
-              <button onClick={endTerminal} title={active.kind === "research" ? "Stop this research session" : "End this terminal"}><X size={14} /> {active.kind === "research" ? "Stop" : "End"}</button>
+              <button onClick={() => endTerminal()} title="End this terminal"><X size={14} /> End</button>
+              {runningSessions.length > 1 && (
+                <button className="terminal-stop-all" onClick={() => setConfirmStopAll(true)}><Power size={13} /> Stop all</button>
+              )}
             </>
           ) : (
-            <button onClick={openTerminal} disabled={busy}>
-              <Plug size={14} /> {busy ? "Opening…" : "Open terminal"}
-            </button>
+            <span className="terminal-state"><span /> none running</span>
           )}
         </div>
       </div>
+      {runningSessions.length > 0 && (
+        <div className="terminal-tabs" aria-label="Running terminals">
+          {runningSessions.map((session) => (
+            <div className={session.id === activeId ? "terminal-tab selected" : "terminal-tab"} key={session.id}>
+              <button
+                className="terminal-tab-main"
+                onClick={() => {
+                  setActiveId(session.id);
+                  setConnectionState("connecting");
+                  setExpanded(true);
+                }}
+                title={session.title}
+              >
+                <span className={`terminal-tab-dot ${session.kind}`} />
+                <span>{session.title}</span>
+                <small>{session.kind === "discussion" ? "chat" : session.kind}</small>
+              </button>
+              <button className="terminal-tab-end" onClick={() => endTerminal(session.id)} aria-label={`End ${session.title}`} title="End this terminal">
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {confirmStopAll && (
+        <div className="terminal-stop-confirm">
+          <div>
+            <strong>Stop all {runningSessions.length} Delta Loop terminals?</strong>
+            <span>This stops their running processes but keeps their saved Codex conversation history.</span>
+          </div>
+          <button onClick={stopAll} disabled={busy}>Stop all</button>
+          <button onClick={() => setConfirmStopAll(false)} disabled={busy}>Cancel</button>
+        </div>
+      )}
       {expanded && active ? (
-        <TerminalView session={active} onEnded={markTerminalEnded} />
+        <TerminalView session={active} onEnded={markTerminalEnded} onConnectionChange={setConnectionState} />
       ) : (
         <div className="terminal-preview">
           <span className="prompt">delta</span>
-          <span>{active ? "Terminal is still running while hidden." : "Open a terminal for the selected research item."}</span>
+          <span>{active ? `${active.title} is still running.` : "No terminal is running for this project."}</span>
           <button><Box size={13} /> {selectedNode ? "Selection is ready" : "Choose an item first"}</button>
         </div>
       )}

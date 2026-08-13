@@ -44,8 +44,11 @@ export default function App() {
   const [researchSession, setResearchSession] = useState<TerminalSessionInfo | null>(null);
   const [researchStarting, setResearchStarting] = useState(false);
   const [terminalExpanded, setTerminalExpanded] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  useEffect(() => {
+  const loadInitialWorkspaces = useCallback(() => {
+    setInitialLoading(true);
+    setError("");
     listWorkspaces()
       .then((workspaces) => {
         if (workspaces[0]) {
@@ -57,8 +60,13 @@ export default function App() {
           setImportOpen(true);
         }
       })
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Unable to open Delta Loop."));
+      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Unable to open Delta Loop."))
+      .finally(() => setInitialLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadInitialWorkspaces();
+  }, [loadInitialWorkspaces]);
 
   const selectedNode = useMemo(
     () => workspace?.nodes.find((node) => node.id === selectedId) ?? null,
@@ -158,7 +166,21 @@ export default function App() {
     setImportOpen(true);
   }
 
-  if (!workspace && !importOpen) return <div className="loading-screen">Opening your research project…</div>;
+  if (!workspace && !importOpen) {
+    return (
+      <div className="loading-screen">
+        {initialLoading ? (
+          <>Opening your research project…</>
+        ) : (
+          <div className="loading-recovery">
+            <strong>Delta Loop could not reconnect</strong>
+            <p>{error || "The app is not responding."}</p>
+            <button onClick={loadInitialWorkspaces}><RefreshCw size={15} /> Try again</button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">

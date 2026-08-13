@@ -92,11 +92,15 @@ def create_app(
     store = WorkspaceStore(data_path)
     protocols = {profile.id: profile for profile in default_protocols()}
     runner = AttemptRunner(store)
-    terminals = TerminalManager(api_url=api_url)
+    terminals = TerminalManager(
+        api_url=api_url,
+        state_path=data_path.with_name("terminals.json"),
+    )
     app = FastAPI(title="Delta Loop", version="0.1.0")
     app.state.store = store
     app.state.runner = runner
     app.state.terminals = terminals
+    app.router.add_event_handler("shutdown", terminals.detach_all)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:4317", "http://localhost:4317"],
@@ -905,17 +909,6 @@ def create_app(
         workspace = workspace_or_404(workspace_id)
         if request.node_id and not any(node.id == request.node_id for node in workspace.nodes):
             raise HTTPException(status_code=404, detail="Selected idea not found.")
-        if request.kind == "research":
-            existing = next(
-                (
-                    session
-                    for session in terminals.list(workspace.id)
-                    if session.kind == "research" and session.status == "active"
-                ),
-                None,
-            )
-            if existing:
-                return existing
         try:
             return terminals.create(
                 workspace.id,
@@ -923,6 +916,7 @@ def create_app(
                 request.node_id,
                 request.agent_prompt,
                 request.kind,
+                request.title,
             )
         except TerminalFailure as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -934,6 +928,11 @@ def create_app(
         except TerminalFailure as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"status": "closed"}
+
+    @app.delete("/api/workspaces/{workspace_id}/terminals")
+    def close_workspace_terminal_sessions(workspace_id: str) -> dict[str, int | str]:
+        workspace_or_404(workspace_id)
+        return {"status": "closed", "count": terminals.close_workspace(workspace_id)}
 
     @app.websocket("/api/terminals/{session_id}/ws")
     async def terminal_socket(websocket: WebSocket, session_id: str) -> None:
@@ -950,7 +949,7 @@ def create_app(
                 data = terminals.read(session_id)
                 if data:
                     await websocket.send_bytes(data)
-                elif terminals.get(session_id) and terminals.get(session_id).status == "exited":
+                elif terminals.get(session_id) and terminals.get(session_id).status in {"exited", "lost"}:
                     await websocket.send_text("\r\n[terminal ended]\r\n")
                     return
                 else:

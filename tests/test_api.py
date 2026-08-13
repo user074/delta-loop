@@ -705,7 +705,7 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
     assert any(rule["id"] == "plan-exact-inputs" for rule in active["rules"])
 
 
-def test_starting_research_reuses_the_active_supervisor(tmp_path: Path, monkeypatch) -> None:
+def test_project_can_keep_multiple_research_terminals_running(tmp_path: Path, monkeypatch) -> None:
     project = tmp_path / "research"
     project.mkdir()
     (project / "STATE.md").write_text(STATE, encoding="utf-8")
@@ -719,14 +719,19 @@ def test_starting_research_reuses_the_active_supervisor(tmp_path: Path, monkeypa
             "node_id": focus["id"],
             "agent_prompt": f"Start the real research loop with visual focus on {focus['title']}.",
             "kind": "research",
+            "title": f"Research · {focus['title']}",
         }
         first = client.post(f"/api/workspaces/{workspace['id']}/terminals", json=payload).json()
         second = client.post(f"/api/workspaces/{workspace['id']}/terminals", json=payload).json()
-        client.delete(f"/api/terminals/{first['id']}")
+        running = client.get(f"/api/workspaces/{workspace['id']}/terminals").json()
+        stopped = client.delete(f"/api/workspaces/{workspace['id']}/terminals").json()
 
     assert first["kind"] == "research"
     assert first["node_id"] == focus["id"]
-    assert second["id"] == first["id"]
+    assert first["title"] == f"Research · {focus['title']}"
+    assert second["id"] != first["id"]
+    assert {session["id"] for session in running if session["status"] == "active"} == {first["id"], second["id"]}
+    assert stopped == {"status": "closed", "count": 2}
 
 
 def test_installed_app_serves_web_ui_and_api_from_one_port(tmp_path: Path) -> None:

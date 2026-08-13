@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import signal
 import shlex
+import shutil
 import struct
 import subprocess
 import sys
 import termios
 import threading
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -35,19 +38,30 @@ class _TerminalRecord:
         info: TerminalSessionInfo,
         process: subprocess.Popen[bytes],
         master_fd: int,
+        tmux_session: str | None = None,
+        replay: bytes = b"",
     ) -> None:
         self.info = info
         self.process = process
         self.master_fd = master_fd
+        self.tmux_session = tmux_session
+        self.replay = replay
         self.input_attached = False
         self.lock = threading.RLock()
 
 
 class TerminalManager:
-    def __init__(self, api_url: str = "http://127.0.0.1:4318") -> None:
+    def __init__(
+        self,
+        api_url: str = "http://127.0.0.1:4318",
+        state_path: str | Path | None = None,
+    ) -> None:
         self._sessions: dict[str, _TerminalRecord] = {}
         self._lock = threading.RLock()
         self._api_url = api_url.rstrip("/")
+        self._state_path = Path(state_path).expanduser().resolve() if state_path else None
+        self._tmux = shutil.which("tmux") if self._state_path else None
+        self._restore()
 
     def create(
         self,
@@ -56,11 +70,11 @@ class TerminalManager:
         node_id: str | None,
         agent_prompt: str | None = None,
         kind: TerminalKind = "shell",
+        title: str = "",
     ) -> TerminalSessionInfo:
         root = Path(working_directory).expanduser().resolve()
         if not root.is_dir():
             raise TerminalFailure("The project folder no longer exists.")
-        master_fd, slave_fd = pty.openpty()
         shell = os.environ.get("SHELL", "/bin/zsh")
         session_id = f"terminal-{uuid4().hex[:10]}"
         env = {
@@ -85,28 +99,38 @@ class TerminalManager:
             )
             agent_command = os.environ.get("DELTA_LOOP_AGENT_COMMAND", DEFAULT_AGENT_COMMAND)
             command = [*shlex.split(agent_command), agent_prompt]
-        process = subprocess.Popen(
-            command,
-            cwd=root,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            start_new_session=True,
-            close_fds=True,
-            env=env,
-        )
-        os.close(slave_fd)
-        os.set_blocking(master_fd, False)
-        self._set_size(master_fd, 100, 28)
+        base_title = title.strip() or ("Agent chat" if kind == "discussion" else "Research" if kind == "research" else "Terminal")
+        with self._lock:
+            active_titles = {
+                record.info.title
+                for record in self._sessions.values()
+                if record.info.workspace_id == workspace_id and record.info.status == "active"
+            }
+        available_title = base_title
+        suffix = 2
+        while available_title in active_titles:
+            if " · " in base_title:
+                label, context = base_title.split(" · ", 1)
+                available_title = f"{label} {suffix} · {context}"
+            else:
+                available_title = f"{base_title} {suffix}"
+            suffix += 1
         info = TerminalSessionInfo(
             id=session_id,
             workspace_id=workspace_id,
             node_id=node_id,
             working_directory=str(root),
             kind=kind,
+            title=available_title,
         )
+        if self._tmux:
+            record = self._start_tmux(info, command, env)
+        else:
+            process, master_fd = self._spawn(command, root, env)
+            record = _TerminalRecord(info, process, master_fd)
         with self._lock:
-            self._sessions[session_id] = _TerminalRecord(info, process, master_fd)
+            self._sessions[session_id] = record
+            self._save()
         return info
 
     def list(self, workspace_id: str) -> list[TerminalSessionInfo]:
@@ -135,12 +159,18 @@ class TerminalManager:
 
     def read(self, session_id: str) -> bytes:
         record = self._record(session_id)
+        with record.lock:
+            if record.replay:
+                data = record.replay
+                record.replay = b""
+                return data
         try:
             data = os.read(record.master_fd, 65536)
         except BlockingIOError:
             return b""
         except OSError:
-            record.info.status = "exited"
+            if not record.tmux_session:
+                record.info.status = "exited"
             return b""
         if data:
             record.info.last_active_at = now_iso()
@@ -160,6 +190,13 @@ class TerminalManager:
 
     def close(self, session_id: str) -> None:
         record = self._record(session_id)
+        if record.tmux_session and self._tmux:
+            subprocess.run(
+                [self._tmux, "kill-session", "-t", record.tmux_session],
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
         if record.process.poll() is None:
             try:
                 os.killpg(record.process.pid, signal.SIGTERM)
@@ -171,6 +208,30 @@ class TerminalManager:
                 except (ProcessLookupError, PermissionError):
                     pass
         record.info.status = "exited"
+        self._save()
+
+    def close_workspace(self, workspace_id: str) -> int:
+        with self._lock:
+            session_ids = [
+                record.info.id
+                for record in self._sessions.values()
+                if record.info.workspace_id == workspace_id and record.info.status == "active"
+            ]
+        for session_id in session_ids:
+            self.close(session_id)
+        return len(session_ids)
+
+    def detach_all(self) -> None:
+        """Detach browser-facing tmux clients without ending their sessions."""
+        with self._lock:
+            records = list(self._sessions.values())
+        for record in records:
+            if not record.tmux_session or record.process.poll() is not None:
+                continue
+            try:
+                os.killpg(record.process.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
 
     def _record(self, session_id: str) -> _TerminalRecord:
         with self._lock:
@@ -182,9 +243,240 @@ class TerminalManager:
     def _refresh(self) -> None:
         with self._lock:
             records = list(self._sessions.values())
+        changed = False
         for record in records:
-            if record.process.poll() is not None:
+            if record.tmux_session:
+                if not self._tmux_alive(record.tmux_session):
+                    if record.info.status != "lost":
+                        record.info.status = "lost"
+                        changed = True
+                elif record.process.poll() is not None:
+                    self._reattach(record)
+            elif record.process.poll() is not None:
                 record.info.status = "exited"
+        if changed:
+            self._save()
+
+    def _spawn(
+        self,
+        command: list[str],
+        root: Path,
+        env: dict[str, str],
+    ) -> tuple[subprocess.Popen[bytes], int]:
+        master_fd, slave_fd = pty.openpty()
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=root,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                start_new_session=True,
+                close_fds=True,
+                env=env,
+            )
+        finally:
+            os.close(slave_fd)
+        os.set_blocking(master_fd, False)
+        self._set_size(master_fd, 100, 28)
+        return process, master_fd
+
+    def _start_tmux(
+        self,
+        info: TerminalSessionInfo,
+        command: list[str],
+        env: dict[str, str],
+    ) -> _TerminalRecord:
+        if not self._tmux:
+            raise TerminalFailure("Persistent terminal support is unavailable.")
+        tmux_session = f"delta-loop-{info.id.removeprefix('terminal-')}"
+        exported = [
+            "env",
+            f"PATH={env['PATH']}",
+            f"TERM={env['TERM']}",
+            f"DELTA_LOOP_API_URL={env['DELTA_LOOP_API_URL']}",
+            f"DELTA_LOOP_TERMINAL_ID={env['DELTA_LOOP_TERMINAL_ID']}",
+            f"DELTA_LOOP_WORKSPACE_ID={env['DELTA_LOOP_WORKSPACE_ID']}",
+            f"DELTA_LOOP_NODE_ID={env['DELTA_LOOP_NODE_ID']}",
+            f"DELTA_LOOP_INSTRUCTIONS={env['DELTA_LOOP_INSTRUCTIONS']}",
+            *command,
+        ]
+        started = subprocess.run(
+            [
+                self._tmux,
+                "new-session",
+                "-d",
+                "-s",
+                tmux_session,
+                "-c",
+                info.working_directory,
+                shlex.join(exported),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=8,
+            env=env,
+        )
+        if started.returncode != 0:
+            detail = started.stderr.strip() or "tmux could not start the terminal."
+            raise TerminalFailure(detail)
+        try:
+            process, master_fd = self._attach_tmux(tmux_session, Path(info.working_directory), env)
+            self._wait_tmux_attached(tmux_session, process)
+        except (OSError, TerminalFailure):
+            subprocess.run(
+                [self._tmux, "kill-session", "-t", tmux_session],
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+            raise
+        return _TerminalRecord(info, process, master_fd, tmux_session=tmux_session)
+
+    def _attach_tmux(
+        self,
+        tmux_session: str,
+        root: Path,
+        env: dict[str, str] | None = None,
+    ) -> tuple[subprocess.Popen[bytes], int]:
+        if not self._tmux:
+            raise TerminalFailure("Persistent terminal support is unavailable.")
+        attach_env = dict(env or {**os.environ, "TERM": "xterm-256color"})
+        # Delta Loop itself is commonly started inside tmux on a server. The
+        # client used for the browser terminal must not think it is nesting
+        # inside that controlling session.
+        attach_env.pop("TMUX", None)
+        return self._spawn(
+            [self._tmux, "attach-session", "-t", tmux_session],
+            root,
+            attach_env,
+        )
+
+    def _reattach(self, record: _TerminalRecord) -> None:
+        if not record.tmux_session:
+            return
+        with record.lock:
+            if record.process.poll() is None:
+                return
+            try:
+                os.close(record.master_fd)
+            except OSError:
+                pass
+            process, master_fd = self._attach_tmux(
+                record.tmux_session,
+                Path(record.info.working_directory),
+            )
+            self._wait_tmux_attached(record.tmux_session, process)
+            record.process = process
+            record.master_fd = master_fd
+            record.input_attached = False
+            record.info.status = "active"
+
+    def _tmux_alive(self, tmux_session: str) -> bool:
+        if not self._tmux:
+            return False
+        try:
+            checked = subprocess.run(
+                [self._tmux, "has-session", "-t", tmux_session],
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return checked.returncode == 0
+
+    def _wait_tmux_attached(
+        self,
+        tmux_session: str,
+        process: subprocess.Popen[bytes],
+    ) -> None:
+        if not self._tmux:
+            return
+        for _ in range(40):
+            if process.poll() is not None:
+                raise TerminalFailure("The persistent terminal could not be attached.")
+            checked = subprocess.run(
+                [
+                    self._tmux,
+                    "display-message",
+                    "-p",
+                    "-t",
+                    tmux_session,
+                    "#{session_attached}",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2,
+            )
+            if checked.returncode == 0 and checked.stdout.strip() not in {"", "0"}:
+                return
+            time.sleep(0.025)
+        raise TerminalFailure("The persistent terminal did not become ready in time.")
+
+    def _capture_tmux(self, tmux_session: str) -> bytes:
+        if not self._tmux:
+            return b""
+        try:
+            captured = subprocess.run(
+                [self._tmux, "capture-pane", "-p", "-J", "-S", "-2000", "-t", tmux_session],
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return b""
+        if captured.returncode != 0:
+            return b""
+        return captured.stdout + (b"\r\n" if captured.stdout else b"")
+
+    def _restore(self) -> None:
+        if not self._state_path or not self._tmux or not self._state_path.is_file():
+            return
+        try:
+            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        for item in payload.get("sessions", []):
+            tmux_session = str(item.get("tmux_session", ""))
+            if not tmux_session or not self._tmux_alive(tmux_session):
+                continue
+            try:
+                info = TerminalSessionInfo.model_validate(item["info"])
+                root = Path(info.working_directory).expanduser().resolve()
+                if not root.is_dir():
+                    continue
+                process, master_fd = self._attach_tmux(tmux_session, root)
+                self._wait_tmux_attached(tmux_session, process)
+            except (KeyError, OSError, TerminalFailure, ValueError):
+                continue
+            info.status = "active"
+            self._sessions[info.id] = _TerminalRecord(
+                info,
+                process,
+                master_fd,
+                tmux_session=tmux_session,
+                replay=self._capture_tmux(tmux_session),
+            )
+
+    def _save(self) -> None:
+        if not self._state_path:
+            return
+        with self._lock:
+            sessions = [
+                {
+                    "info": record.info.model_dump(mode="json"),
+                    "tmux_session": record.tmux_session,
+                }
+                for record in self._sessions.values()
+                if record.tmux_session and record.info.status == "active"
+            ]
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._state_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"sessions": sessions}, indent=2) + "\n", encoding="utf-8")
+            temporary.replace(self._state_path)
 
     @staticmethod
     def _set_size(master_fd: int, columns: int, rows: int) -> None:
