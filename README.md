@@ -329,8 +329,9 @@ Ending a terminal from the UI still ends that tmux session intentionally.
 
 Every running Delta Loop session appears as a tab in the terminal panel. Use **New → Agent chat** to start another
 Codex conversation or **New → Terminal** for another command line, then click the tabs to move between them. Hiding
-the panel leaves every tab running. **End** stops only the selected tab; **Stop all** stops every Delta Loop terminal
-for the current project but does not delete Codex's saved conversation history.
+the panel leaves every tab running and Delta Loop continues recording its output. Use the mouse wheel or trackpad to
+read earlier messages; **Latest message** returns to the live output. **End** stops only the selected tab; **Stop all**
+stops every Delta Loop terminal for the current project but does not delete Codex's saved conversation history.
 
 For a short session where you do not need Delta Loop to survive disconnection, you can start the app and tunnel
 together with one command from your computer:

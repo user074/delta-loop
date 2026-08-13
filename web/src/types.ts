@@ -300,6 +300,7 @@ export interface TerminalSessionInfo {
   working_directory: string;
   kind: "shell" | "discussion" | "research";
   title: string;
+  persistent: boolean;
   status: "active" | "exited" | "lost";
   created_at: string;
   last_active_at: string;

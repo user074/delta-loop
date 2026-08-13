@@ -276,6 +276,7 @@ class TerminalSessionInfo(BaseModel):
     working_directory: str
     kind: TerminalKind = "shell"
     title: str = "Terminal"
+    persistent: bool = False
     status: Literal["active", "exited", "lost"] = "active"
     created_at: str = Field(default_factory=now_iso)
     last_active_at: str = Field(default_factory=now_iso)

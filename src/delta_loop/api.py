@@ -945,8 +945,11 @@ def create_app(
             return
 
         async def send_output() -> None:
+            transcript, cursor = await asyncio.to_thread(terminals.transcript, session_id)
+            if transcript:
+                await websocket.send_bytes(transcript)
             while True:
-                data = terminals.read(session_id)
+                data, cursor = terminals.output_since(session_id, cursor)
                 if data:
                     await websocket.send_bytes(data)
                 elif terminals.get(session_id) and terminals.get(session_id).status in {"exited", "lost"}:
@@ -978,6 +981,8 @@ def create_app(
                     )
                 elif payload.get("type") == "input":
                     terminals.write(session_id, str(payload.get("data", "")).encode())
+                elif payload.get("type") == "latest":
+                    await asyncio.to_thread(terminals.latest, session_id)
 
         sender = asyncio.create_task(send_output())
         receiver = asyncio.create_task(receive_input())
