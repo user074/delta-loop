@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from .harness import inspect_harness
-from .models import Claim, ProjectSnapshot, ResearchNode, RunRecord
+from .models import Claim, ProjectInitialization, ProjectSnapshot, ResearchNode, RunRecord
 from .rules import initial_rules_version
 
 
@@ -141,6 +141,7 @@ def import_workspace(root_value: str | Path) -> ProjectSnapshot:
             active_rules_version_id="rules-v1",
             harness=inspect_harness(root),
             setup_status="needs-setup",
+            initialization=ProjectInitialization(status="pending"),
         )
 
     markdown = state_path.read_text(encoding="utf-8")

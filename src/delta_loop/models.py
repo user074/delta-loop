@@ -57,6 +57,8 @@ ComputeStatus = Literal["unchecked", "ready", "unreachable", "needs-setup"]
 GitRepositoryState = Literal["unchecked", "ready", "not-repository", "unreachable"]
 ProjectSetupStatus = Literal["needs-setup", "ready"]
 ProjectSource = Literal["local", "remote"]
+InitializationStatus = Literal["pending", "complete", "imported"]
+PermissionMode = Literal["manual", "scoped", "full"]
 
 
 def now_iso() -> str:
@@ -418,6 +420,26 @@ class RemoteProjectReading(BaseModel):
     read_at: str = Field(default_factory=now_iso)
 
 
+class ProjectInitialization(BaseModel):
+    status: InitializationStatus = "imported"
+    project_understanding: str = ""
+    prior_work: list[str] = Field(default_factory=list)
+    reusable_inputs: list[str] = Field(default_factory=list)
+    success_condition: str = ""
+    stop_condition: str = ""
+    budget: str = ""
+    permission_mode: PermissionMode = "scoped"
+    environment_verified: bool = False
+    git_reviewed: bool = False
+    literature_gate: bool = True
+    completed_at: str = ""
+    source_revision: str = ""
+    initialization_file: str = ""
+    infra_file: str = ""
+    synthesis_file: str = ""
+    literature_index_file: str = ""
+
+
 class ProjectSnapshot(BaseModel):
     id: str
     root: str
@@ -457,6 +479,7 @@ class ProjectSnapshot(BaseModel):
     reference_repos: list[str] = Field(default_factory=list)
     setup_constraints: list[str] = Field(default_factory=list)
     project_source: ProjectSource = "local"
+    initialization: ProjectInitialization = Field(default_factory=ProjectInitialization)
 
 
 class ImportRequest(BaseModel):
@@ -467,6 +490,14 @@ class ProjectSetupRequest(BaseModel):
     summary: str
     reference_repos: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    prior_work: list[str] = Field(default_factory=list)
+    reusable_inputs: list[str] = Field(default_factory=list)
+    success_condition: str = ""
+    stop_condition: str = ""
+    budget: str = ""
+    permission_mode: PermissionMode = "scoped"
+    environment_verified: bool = False
+    git_reviewed: bool = False
 
 
 class WorkspacePatch(BaseModel):
