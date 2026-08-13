@@ -271,8 +271,8 @@ class TerminalManager:
             # TIOCSWINSZ is not required to signal when the size is unchanged.
             # A one-column nudge guarantees that tmux emits a complete redraw.
             temporary_columns = columns - 1 if columns > 20 else columns + 1
-            self._set_size(record.master_fd, temporary_columns, rows)
-        self._set_size(record.master_fd, columns, rows)
+            self._resize_record(record, temporary_columns, rows)
+        self._resize_record(record, columns, rows)
         try:
             os.killpg(record.process.pid, signal.SIGWINCH)
         except (ProcessLookupError, PermissionError):
@@ -320,7 +320,7 @@ class TerminalManager:
 
     def resize(self, session_id: str, columns: int, rows: int) -> None:
         record = self._record(session_id)
-        self._set_size(record.master_fd, columns, rows)
+        self._resize_record(record, columns, rows)
 
     def latest(self, session_id: str) -> None:
         record = self._record(session_id)
@@ -653,6 +653,41 @@ class TerminalManager:
         if captured.returncode != 0:
             return b""
         return captured.stdout.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+    def _resize_record(self, record: _TerminalRecord, columns: int, rows: int) -> None:
+        """Make the browser-facing PTY and the tmux window the same size.
+
+        Resizing only the PTY normally lets tmux infer the new window size from
+        its attached clients. That inference can keep the smaller size when a
+        stale or second tmux client exists, which leaves a short terminal at the
+        top of a fullscreen browser. Delta Loop owns one window per session, so
+        it can safely make that window match the browser explicitly.
+        """
+        columns = max(20, min(columns, 500))
+        rows = max(4, min(rows, 200))
+        self._set_size(record.master_fd, columns, rows)
+        if not record.tmux_session or not self._tmux:
+            return
+        try:
+            subprocess.run(
+                [
+                    self._tmux,
+                    "resize-window",
+                    "-x",
+                    str(columns),
+                    "-y",
+                    str(rows),
+                    "-t",
+                    f"{record.tmux_session}:0",
+                ],
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            # The PTY resize still gives tmux's attached-client logic a chance
+            # to resize the window on older or unusual installations.
+            pass
 
     def _restore(self) -> None:
         if not self._state_path or not self._tmux or not self._state_path.is_file():

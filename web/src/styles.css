@@ -234,12 +234,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .terminal-preview button { margin-left: auto; display: flex; align-items: center; gap: 5px; border: 1px solid #48483f; border-radius: 5px; background: #303029; color: #aaa79f; padding: 6px 9px; font: 9px "SFMono-Regular", Consolas, monospace; }
 .terminal-view-stack { position: absolute; inset: 72px 0 0; height: 268px; visibility: hidden; pointer-events: none; }
 .terminal-view-stack.expanded { visibility: visible; }
-.terminal-dock.maximized .terminal-view-stack { height: auto; }
+.terminal-dock.maximized .terminal-view-stack { height: auto; min-height: 0; }
 .terminal-view-pane { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .terminal-view-pane.active { visibility: visible; pointer-events: auto; }
 .terminal-screen-wrap { position: relative; height: 305px; }
 .terminal-dock.has-sessions .terminal-screen-wrap { height: 268px; }
-.terminal-dock.maximized .terminal-screen-wrap { height: 100%; }
+.terminal-dock.maximized .terminal-screen-wrap { height: 100%; min-height: 0; }
 .terminal-screen { height: 100%; padding: 8px 10px 6px; overflow: hidden; overscroll-behavior: contain; }
 .terminal-screen .xterm { height: 100%; }
 .terminal-screen .xterm-viewport { scrollbar-width: thin; scrollbar-color: #68685d #24241f; }

@@ -1072,7 +1072,8 @@ def create_app(
                     terminals.write(session_id, text.encode())
                     continue
                 if payload.get("type") == "resize":
-                    terminals.resize(
+                    await asyncio.to_thread(
+                        terminals.resize,
                         session_id,
                         int(payload.get("columns", 100)),
                         int(payload.get("rows", 28)),

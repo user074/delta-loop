@@ -2,7 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Box, ChevronDown, ChevronUp, Maximize2, MessageCircle, Minimize2, Plus, Power, SquareTerminal, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from "./api";
 import type { DiscussionRequest } from "./discussions";
 import type { AppPage, ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
@@ -58,15 +58,35 @@ type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "en
 
 function TerminalView({
   session,
+  active,
+  maximized,
   onEnded,
   onConnectionChange,
 }: {
   session: TerminalSessionInfo;
+  active: boolean;
+  maximized: boolean;
   onEnded: (sessionId: string) => void;
   onConnectionChange: (sessionId: string, state: TerminalConnectionState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const readingEarlier = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!active) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      fitRef.current?.fit();
+      // The fullscreen class and viewport unit can settle on consecutive
+      // frames, especially after browser chrome changes size.
+      secondFrame = window.requestAnimationFrame(() => fitRef.current?.fit());
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [active, maximized]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -90,6 +110,7 @@ function TerminalView({
       },
     });
     const fit = new FitAddon();
+    fitRef.current = fit;
     terminal.loadAddon(fit);
     terminal.open(containerRef.current);
     fit.fit();
@@ -260,6 +281,7 @@ function TerminalView({
         socket.close(1000);
       }
       terminal.dispose();
+      if (fitRef.current === fit) fitRef.current = null;
     };
   }, [onConnectionChange, onEnded, session.id, session.persistent]);
 
@@ -594,6 +616,8 @@ export default function TerminalDock({
             >
               <TerminalView
                 session={session}
+                active={expanded && session.id === activeId}
+                maximized={maximized}
                 onEnded={markTerminalEnded}
                 onConnectionChange={markConnectionState}
               />
