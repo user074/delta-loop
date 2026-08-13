@@ -58,7 +58,7 @@ function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) 
   ].join("\n\n");
 }
 
-type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "ended";
+type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "elsewhere" | "ended";
 
 function TerminalView({
   session,
@@ -179,6 +179,11 @@ function TerminalView({
       };
       socket.onclose = (event) => {
         if (disposed) return;
+        if (event.code === 4410) {
+          terminal.writeln("\r\nThis terminal moved to another browser view. Hide and show it here to take control again.");
+          onConnectionChange(session.id, "elsewhere");
+          return;
+        }
         if (terminalEnded || event.code === 4404) {
           if (event.code === 4404) terminal.writeln("\r\nThis terminal was not found after the server restarted.");
           onConnectionChange(session.id, "ended");
@@ -186,9 +191,7 @@ function TerminalView({
           return;
         }
         if (!reconnectMessageShown) {
-          terminal.writeln(event.code === 4409
-            ? "\r\nThe terminal is still attached elsewhere. Retrying…"
-            : "\r\nConnection interrupted. Reconnecting…");
+          terminal.writeln("\r\nConnection interrupted. Reconnecting…");
           reconnectMessageShown = true;
         }
         onConnectionChange(session.id, "reconnecting");

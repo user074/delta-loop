@@ -1077,9 +1077,7 @@ def create_app(
         if not terminals.get(session_id):
             await websocket.close(code=4404, reason="Terminal not found.")
             return
-        if not terminals.acquire_input(session_id):
-            await websocket.close(code=4409, reason="This terminal is already open somewhere else.")
-            return
+        input_generation = terminals.acquire_input(session_id)
 
         try:
             columns = int(websocket.query_params.get("columns", "100"))
@@ -1094,16 +1092,22 @@ def create_app(
                 rows,
             )
         except (TerminalFailure, OSError, RuntimeError):
-            terminals.release_input(session_id)
+            terminals.release_input(session_id, input_generation)
             await websocket.close(code=1011, reason="The terminal screen could not be prepared.")
             return
 
         async def send_output() -> None:
             nonlocal cursor
+            if not terminals.owns_input(session_id, input_generation):
+                await websocket.close(code=4410, reason="Terminal opened in another browser view.")
+                return
             if initial_output:
                 await websocket.send_bytes(initial_output)
             await websocket.send_text(json.dumps({"type": "ready"}))
             while True:
+                if not terminals.owns_input(session_id, input_generation):
+                    await websocket.close(code=4410, reason="Terminal opened in another browser view.")
+                    return
                 data, cursor = terminals.output_since(session_id, cursor)
                 if data:
                     await websocket.send_bytes(data)
@@ -1117,6 +1121,8 @@ def create_app(
             while True:
                 message = await websocket.receive()
                 if message.get("type") == "websocket.disconnect":
+                    return
+                if not terminals.owns_input(session_id, input_generation):
                     return
                 data = message.get("bytes")
                 if data is not None:
@@ -1159,7 +1165,7 @@ def create_app(
         except (WebSocketDisconnect, TerminalFailure, RuntimeError):
             pass
         finally:
-            terminals.release_input(session_id)
+            terminals.release_input(session_id, input_generation)
 
     if serve_web:
         built_web = Path(
