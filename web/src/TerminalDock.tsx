@@ -607,22 +607,17 @@ export default function TerminalDock({
           <button onClick={() => setConfirmStopAll(false)} disabled={busy}>Cancel</button>
         </div>
       )}
-      {runningSessions.length > 0 && (
-        <div className={expanded ? "terminal-view-stack expanded" : "terminal-view-stack"}>
-          {runningSessions.map((session) => (
-            <div
-              className={expanded && session.id === activeId ? "terminal-view-pane active" : "terminal-view-pane"}
-              key={session.id}
-            >
-              <TerminalView
-                session={session}
-                active={expanded && session.id === activeId}
-                maximized={maximized}
-                onEnded={markTerminalEnded}
-                onConnectionChange={markConnectionState}
-              />
-            </div>
-          ))}
+      {expanded && active && (
+        <div className="terminal-view-stack expanded">
+          <div className="terminal-view-pane active" key={active.id}>
+            <TerminalView
+              session={active}
+              active
+              maximized={maximized}
+              onEnded={markTerminalEnded}
+              onConnectionChange={markConnectionState}
+            />
+          </div>
         </div>
       )}
       {!expanded && (
