@@ -159,6 +159,7 @@ def test_project_without_state_can_be_set_up_with_codex_flow(tmp_path: Path) -> 
     project = tmp_path / "existing-project"
     project.mkdir()
     (project / "README.md").write_text("# Existing project\n", encoding="utf-8")
+    (project / "INFRA.md").write_text("# Existing infrastructure notes\n", encoding="utf-8")
     app = create_app(tmp_path / "loop-data.json")
 
     with TestClient(app) as client:
@@ -218,12 +219,45 @@ def test_project_without_state_can_be_set_up_with_codex_flow(tmp_path: Path) -> 
         )
         assert blocked_plan.status_code == 409
         assert "Finish setting up" in blocked_plan.json()["detail"]
+        inspected = client.post(
+            f"/api/workspaces/{workspace_id}/compute/inspect",
+            json={"kind": "local"},
+        )
+        assert inspected.status_code == 200
+        configured = client.put(
+            f"/api/workspaces/{workspace_id}/compute",
+            json={
+                "kind": "local",
+                "name": "This computer",
+                "ssh_host": "",
+                "project_path": "",
+                "run_path": "~/.delta-loop/runs",
+                "setup_command": "",
+                "gpu_devices": "",
+                "max_parallel": 1,
+            },
+        )
+        assert configured.status_code == 200
+        checked = client.post(f"/api/workspaces/{workspace_id}/compute/check")
+        assert checked.status_code == 200
+        assert checked.json()["compute"]["last_checked_at"]
+        git_checked = client.post(f"/api/workspaces/{workspace_id}/git/check")
+        assert git_checked.status_code == 200
+        assert git_checked.json()["git_repository"]["state"] == "not-repository"
         completed = client.post(
             f"/api/workspaces/{workspace_id}/setup/complete",
             json={
                 "summary": "Study length-related model failures using the existing evaluation code.",
                 "reference_repos": ["https://github.com/example/reference"],
                 "constraints": ["Do not replace the existing evaluation dataset"],
+                "prior_work": ["The baseline works on short inputs but degrades with length"],
+                "reusable_inputs": ["The existing matched-input evaluation script"],
+                "success_condition": "Identify a reproducible cause of the long-input failure.",
+                "stop_condition": "Ask before replacing the model or evaluation dataset.",
+                "budget": "Two small GPU runs before review.",
+                "permission_mode": "scoped",
+                "environment_verified": True,
+                "git_reviewed": True,
             },
         )
         assert completed.status_code == 200
@@ -232,11 +266,31 @@ def test_project_without_state_can_be_set_up_with_codex_flow(tmp_path: Path) -> 
         assert snapshot["status"] == "active"
         assert snapshot["reference_repos"] == ["https://github.com/example/reference"]
         assert snapshot["setup_constraints"] == ["Do not replace the existing evaluation dataset"]
+        assert snapshot["initialization"]["status"] == "complete"
+        assert snapshot["initialization"]["environment_verified"] is True
+        assert snapshot["initialization"]["git_reviewed"] is True
         state = (project / "STATE.md").read_text(encoding="utf-8")
         assert "Determine why the existing model fails on long inputs" in state
         assert "The positional representation is the bottleneck" in state
         assert "Compare short and long matched inputs" in state
         assert "https://github.com/example/reference" in state
+        assert "Literature review for belief #1" in state
+        assert "| pending |" in state
+        assert "Two small GPU runs before review" in state
+        initialization = (project / ".delta-loop" / "INITIALIZATION.md").read_text(
+            encoding="utf-8"
+        )
+        assert "What was already tried" in initialization
+        assert "The existing matched-input evaluation script" in initialization
+        assert "Run commands inside the approved project and limits" in initialization
+        assert (project / "SYNTHESIS.md").is_file()
+        assert (project / "LITERATURE" / "INDEX.md").is_file()
+        assert (project / "REPORTS").is_dir()
+        assert (project / "RUNS").is_dir()
+        assert (project / "INFRA.md").read_text(encoding="utf-8") == "# Existing infrastructure notes\n"
+        policy = (project / ".delta-loop" / "POLICY.md").read_text(encoding="utf-8")
+        assert "## Researcher-approved starting setup" in policy
+        assert "Identify a reproducible cause" in policy
 
         reimported = client.post(
             "/api/workspaces/import", json={"path": str(project)}
@@ -282,10 +336,17 @@ def test_remote_project_starts_with_local_notes_and_no_generated_results(tmp_pat
         )
         unfinished = client.post(
             f"/api/workspaces/{workspace['id']}/setup/complete",
-            json={"summary": "Study the existing model on the remote server."},
+            json={
+                "summary": "Study the existing model on the remote server.",
+                "success_condition": "Find a reproducible explanation.",
+                "stop_condition": "Ask before changing the model.",
+                "budget": "One small run.",
+                "environment_verified": True,
+                "git_reviewed": True,
+            },
         )
         assert unfinished.status_code == 422
-        assert "Connect and check the remote project" in unfinished.json()["detail"]
+        assert "Choose and check where research work runs" in unfinished.json()["detail"]
         assert not (root / "STATE.md").exists()
 
 

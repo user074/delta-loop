@@ -211,8 +211,8 @@ export default function App() {
             <div>
               <strong>Set up this project</strong>
               <p>{workspace.project_source === "remote"
-                ? "Codex will connect to the existing repository on your server, discuss the research and server rules with you, then save the setup after you approve it."
-                : "Codex will read the existing repository, discuss the research with you, and create the initial research state after you approve it."}</p>
+                ? "Codex will inspect the repository on your server, propose the questions and idea map, check compute and Git, then save the agreed research starting point and rules."
+                : "Codex will inspect this repository, propose the questions and idea map, check compute and Git, then save the agreed research starting point and rules."}</p>
             </div>
             <button onClick={() => openDiscussion(setupDiscussion(workspace))}><SquareTerminal size={15} /> Chat with Codex</button>
           </section>

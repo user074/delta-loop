@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, Edit3, FlaskConical, GitBranch, History, MessageSquareText, Save, Sparkles, Target, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Edit3, FileCheck2, FlaskConical, GitBranch, History, MessageSquareText, Save, Sparkles, Target, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { updateQuestion } from "./api";
 import { questionDiscussion, type DiscussionRequest } from "./discussions";
@@ -20,6 +20,12 @@ const workKindLabels: Record<string, string> = {
   ablation: "Ablation",
   "full-study": "Full study",
   "research-engineering": "Research engineering",
+};
+
+const permissionLabels = {
+  manual: "Ask before each command",
+  scoped: "Run commands inside the approved project and limits",
+  full: "Run project commands within the saved safety limits",
 };
 
 function readableStatus(status: string) {
@@ -154,6 +160,29 @@ export default function HomePage({
           </div>
         </aside>
       </div>
+
+      {workspace.initialization.status === "complete" && (
+        <details className="initialization-card">
+          <summary>
+            <div><FileCheck2 size={17} /><span><small>Starting setup</small><strong>See what was agreed before research began</strong></span></div>
+            <span>{workspace.initialization.environment_verified && workspace.initialization.git_reviewed ? "Complete" : "Needs review"}</span>
+          </summary>
+          <div className="initialization-body">
+            <div className="initialization-understanding"><small>Project understanding</small><p>{workspace.initialization.project_understanding}</p></div>
+            <div className="initialization-grid">
+              <div><small>Success looks like</small><p>{workspace.initialization.success_condition}</p></div>
+              <div><small>Stop or ask when</small><p>{workspace.initialization.stop_condition}</p></div>
+              <div><small>Budget</small><p>{workspace.initialization.budget}</p></div>
+              <div><small>What the agent may run</small><p>{permissionLabels[workspace.initialization.permission_mode]}</p></div>
+            </div>
+            <div className="initialization-lists">
+              <div><small>What was already tried</small>{workspace.initialization.prior_work.length ? <ul>{workspace.initialization.prior_work.map((item) => <li key={item}>{item}</li>)}</ul> : <p>Nothing recorded.</p>}</div>
+              <div><small>Reusable data, models, and tools</small>{workspace.initialization.reusable_inputs.length ? <ul>{workspace.initialization.reusable_inputs.map((item) => <li key={item}>{item}</li>)}</ul> : <p>Nothing recorded.</p>}</div>
+            </div>
+            <p className="initialization-foot">Environment verified · Git choices reviewed · Literature review required for each new or changed idea</p>
+          </div>
+        </details>
+      )}
     </section>
   );
 }

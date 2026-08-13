@@ -117,6 +117,32 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
             )
     if not workspace.research_links:
         lines.append("| — | No relationships recorded | — | — |")
+    initialization = workspace.initialization
+    if initialization.status == "complete":
+        lines.extend(
+            [
+                "",
+                "## Researcher-approved starting setup",
+                "",
+                f"- **Project understanding:** {_line(initialization.project_understanding)}",
+                f"- **Success looks like:** {_line(initialization.success_condition)}",
+                f"- **Stop when:** {_line(initialization.stop_condition)}",
+                f"- **Budget:** {_line(initialization.budget)}",
+                f"- **Agent command permission:** {_line(initialization.permission_mode)}",
+                "- **Literature:** Review every new or materially changed hypothesis before empirical work.",
+                f"- **Initialization record:** {_line(initialization.initialization_file)}",
+                "",
+                "### Reusable inputs",
+                "",
+            ]
+        )
+        reusable = [*workspace.reference_repos, *initialization.reusable_inputs]
+        lines.extend([f"- {_line(item)}" for item in reusable] or ["- None recorded"])
+        lines.extend(["", "### Starting constraints", ""])
+        lines.extend(
+            [f"- {_line(item)}" for item in workspace.setup_constraints]
+            or ["- None recorded"]
+        )
     lines.extend(["", "## Enabled general rules"])
 
     enabled = [rule for rule in (active.rules if active else []) if rule.enabled]

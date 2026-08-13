@@ -233,6 +233,26 @@ export interface GitRepositoryStatus {
   last_commit: string;
 }
 
+export interface ProjectInitialization {
+  status: "pending" | "complete" | "imported";
+  project_understanding: string;
+  prior_work: string[];
+  reusable_inputs: string[];
+  success_condition: string;
+  stop_condition: string;
+  budget: string;
+  permission_mode: "manual" | "scoped" | "full";
+  environment_verified: boolean;
+  git_reviewed: boolean;
+  literature_gate: boolean;
+  completed_at: string;
+  source_revision: string;
+  initialization_file: string;
+  infra_file: string;
+  synthesis_file: string;
+  literature_index_file: string;
+}
+
 export interface ResultReview {
   id: string;
   attempt_id: string;
@@ -343,4 +363,5 @@ export interface Workspace {
   reference_repos: string[];
   setup_constraints: string[];
   project_source: "local" | "remote";
+  initialization: ProjectInitialization;
 }

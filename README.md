@@ -45,9 +45,11 @@ Choose where your existing research code lives:
 - **This computer:** choose the project folder.
 - **Remote server:** chat with Codex, then give it the SSH name you already use and the project folder on that server.
 
-Codex maps the project structure and reads the relevant source and documentation, explains what it found, and asks
-about the research question and rules it cannot infer. It does not install software, run experiments, or change the
-remote repository during setup. You approve the proposed setup before Delta Loop saves it.
+Codex maps the project structure and reads the relevant source and documentation. It then walks through the useful
+parts of the `delta-research` starting process in short rounds: what the project does, what was already tried, the
+starting questions and ideas, reusable code and data, what would count as success, when to stop, the available
+compute, and how Git should be handled. It does not install software, run experiments, or change the remote
+repository during setup. You approve the complete starting setup before Delta Loop saves it.
 
 The proposed research map has three levels:
 
@@ -63,9 +65,14 @@ High-level research question
 Delta Loop keeps the number of ideas small and records when an idea is reframed, parked, reopened, or moved, so
 you can review how the research direction evolved.
 
+Finishing setup requires an actual compute check and an actual Git inspection. It creates the first research state,
+summary, literature list, run folders, and a readable record of everything agreed during setup. The Home page keeps
+that record available under **Starting setup**.
+
 ## What the POC can do
 
 - Open an existing research project on this computer or an SSH server; import its `STATE.md` when present, or let Codex set it up when no state exists
+- Use the full `delta-research` starting review when no state exists: project understanding, prior work, reusable inputs, research map, success and stopping rules, verified compute, and reviewed Git behavior
 - Start with the real `user074/delta-research` cycle as an editable default and record its source revision
 - Show the editable main question and keep its earlier wording when the question changes
 - Present the latest result and review as a compact research-update slide
@@ -90,12 +97,18 @@ you can review how the research direction evolved.
 - Review whether a run followed the plan, whether the result is trustworthy, and what to do next
 
 The installed app stores its own history in `~/.delta-loop/`. The developer version uses `.delta-loop-data/` in
-this repository. For a local project Delta Loop generates two files inside the research project. For a remote
-project it keeps these files in a small local notes folder, so the repository on the server is not changed during
-setup:
+this repository. For a local project, the following files live in the research project. For a remote project, they
+live in a small local notes folder, so setup does not change the repository on the server:
 
 - `.delta-loop/LOOP.md` is the complete active research loop used by the agent.
 - `.delta-loop/POLICY.md` contains the researcher's active project and idea-specific choices.
+- `.delta-loop/INITIALIZATION.md` records the approved research starting point, reusable inputs, boundaries, compute, and Git review.
+- `STATE.md` starts the beliefs, literature checks, work list, and result ledger.
+- `SYNTHESIS.md` starts the human-readable research summary.
+- `INFRA.md` records the checked compute setup when the project does not already have one.
+- `LITERATURE/INDEX.md`, `REPORTS/`, and `RUNS/` provide the initial research record folders.
+
+Existing `INFRA.md` and `SYNTHESIS.md` files are reused rather than overwritten.
 
 An agent started by Delta Loop receives both files before doing research. It does not read or combine another
 supervisor prompt at runtime. Its built-in research cycle was adapted from
@@ -133,7 +146,7 @@ in the UI:
 delta context
 delta project inspect-remote --host lab-gpu --project ~/projects/my-research
 delta project read-remote --host lab-gpu --project ~/projects/my-research src/train.py src/model.py
-delta project finish-setup --summary "Short project summary" --reference /path/to/reference --constraint "Do not change the evaluation dataset"
+delta project finish-setup --summary "Short project summary" --prior-work "Baseline result" --reference /path/to/reference --input /path/to/dataset --success "A reproducible answer" --stop "Ask before changing the dataset" --budget "Two small GPU runs" --permissions scoped --environment-verified --git-reviewed --constraint "Do not change the evaluation dataset"
 delta compute show
 delta compute inspect --local
 delta compute inspect --host lab-gpu --project ~/projects/my-research
@@ -189,7 +202,8 @@ requests until it can explain the project. It also checks the server environment
 outputs, model weights, binaries, credentials, and unrelated server folders are excluded. Nothing is installed or
 run during this conversation. Codex proposes a high-level question, a few mid-level ideas, concrete experiments,
 and the server setup. After you approve it, Codex populates the map, saves the connection, checks the exact
-environment, creates the initial local research state, and leaves the remote repository unchanged.
+environment and repository state, records success, stopping, budget, and Git choices, creates the initial local
+research files, and leaves the remote repository unchanged.
 
 For each remote run, Delta Loop copies the sealed plan to the configured run-record folder, starts the command as a
 background process, and reads its status and recent log over SSH. The job continues if the browser or Delta Loop is

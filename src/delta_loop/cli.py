@@ -76,6 +76,25 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     project_finish.add_argument("--summary", required=True)
     project_finish.add_argument("--reference", action="append", default=[])
     project_finish.add_argument("--constraint", action="append", default=[])
+    project_finish.add_argument("--prior-work", action="append", default=[])
+    project_finish.add_argument(
+        "--input",
+        action="append",
+        default=[],
+        dest="reusable_inputs",
+        help="Reusable dataset, checkpoint, model, library, or evaluation tool",
+    )
+    project_finish.add_argument("--success", required=True, dest="success_condition")
+    project_finish.add_argument("--stop", required=True, dest="stop_condition")
+    project_finish.add_argument("--budget", required=True)
+    project_finish.add_argument(
+        "--permissions",
+        choices=["manual", "scoped", "full"],
+        default="scoped",
+        dest="permission_mode",
+    )
+    project_finish.add_argument("--environment-verified", action="store_true")
+    project_finish.add_argument("--git-reviewed", action="store_true")
     project_finish.add_argument("--workspace")
     project_finish.add_argument(
         "--url",
@@ -365,6 +384,14 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
                 args.summary,
                 args.reference,
                 args.constraint,
+                args.prior_work,
+                args.reusable_inputs,
+                args.success_condition,
+                args.stop_condition,
+                args.budget,
+                args.permission_mode,
+                args.environment_verified,
+                args.git_reviewed,
             )
         return
 
@@ -881,6 +908,14 @@ def _finish_project_setup(
     summary: str,
     references: list[str],
     constraints: list[str],
+    prior_work: list[str],
+    reusable_inputs: list[str],
+    success_condition: str,
+    stop_condition: str,
+    budget: str,
+    permission_mode: str,
+    environment_verified: bool,
+    git_reviewed: bool,
 ) -> None:
     workspace_id, _ = _ids(workspace_id)
     workspace_path = urllib.parse.quote(workspace_id, safe="")
@@ -892,12 +927,21 @@ def _finish_project_setup(
             "summary": summary,
             "reference_repos": references,
             "constraints": constraints,
+            "prior_work": prior_work,
+            "reusable_inputs": reusable_inputs,
+            "success_condition": success_condition,
+            "stop_condition": stop_condition,
+            "budget": budget,
+            "permission_mode": permission_mode,
+            "environment_verified": environment_verified,
+            "git_reviewed": git_reviewed,
         },
     )
     print(f"Project setup complete: {updated['name']}")
     print(f"Main question: {updated['goal']}")
     print(f"Created: {updated['root']}/STATE.md")
-    print("Compute remains separate; use the Compute page before starting research work.")
+    print(f"Initialization record: {updated['initialization']['initialization_file']}")
+    print("Created or reused INFRA.md, SYNTHESIS.md, REPORTS/, RUNS/, and LITERATURE/INDEX.md.")
 
 
 def _inspect_remote_project(

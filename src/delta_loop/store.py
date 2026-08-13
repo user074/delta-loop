@@ -71,6 +71,7 @@ class WorkspaceStore:
                 workspace.setup_summary = previous.setup_summary
                 workspace.reference_repos = previous.reference_repos
                 workspace.setup_constraints = previous.setup_constraints
+                workspace.initialization = previous.initialization
                 if previous.setup_summary:
                     workspace.nodes = previous.nodes
                 if previous.question_history:
