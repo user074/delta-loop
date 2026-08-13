@@ -246,9 +246,14 @@ check` and `delta git show`.
 changes or update a checkout that points at a different Git remote. It does not silently replace the active loop;
 that loop remains a checked, reversible Delta Loop policy version.
 
-The discussion buttons start Codex by default. Its command sandbox allows local connections so it can reach
-Delta Loop at `127.0.0.1`, while other internet destinations remain blocked. Set `DELTA_LOOP_AGENT_COMMAND`
-before starting Delta Loop to use another interactive agent command.
+The discussion and research buttons start Codex without asking for approval for every command or file edit. Codex
+may write inside the selected research project, but the workspace sandbox still prevents it from changing unrelated
+folders. Its command sandbox allows local connections so it can reach Delta Loop at `127.0.0.1`, while other
+internet destinations remain blocked.
+
+This is deliberately safer than Codex's full `--yolo` mode: it removes the repeated prompts without removing the
+project boundary. Set `DELTA_LOOP_AGENT_COMMAND` before starting Delta Loop if you want to supply a different
+interactive agent command.
 
 ## Alternative: run Delta Loop itself on a remote server
 
@@ -294,7 +299,17 @@ ssh YOUR_SERVER \
    '$HOME/.local/bin/delta-loop --host 127.0.0.1 --port 4317 --no-open'"
 ```
 
-In a terminal on your own computer, create the encrypted SSH tunnel:
+For the most reliable connection, install Delta Loop on your own computer too, then run:
+
+```bash
+delta-loop connect YOUR_SERVER
+```
+
+This opens the remote page through SSH and keeps retrying after sleep, a Wi-Fi change, or a temporary network
+failure. It normally uses local port 4318. If that port is occupied by a stale VS Code forward, it chooses the next
+free port and prints the exact address it opened. Keep this command running while using the remote page.
+
+The plain SSH equivalent is:
 
 ```bash
 ssh -N -L 4317:127.0.0.1:4317 YOUR_SERVER
@@ -303,9 +318,19 @@ ssh -N -L 4317:127.0.0.1:4317 YOUR_SERVER
 Then open [http://127.0.0.1:4317](http://127.0.0.1:4317) in the browser on your computer. Although the address
 looks local, the page and Delta Loop process are running on the remote server through the SSH tunnel.
 
-The tunnel command stays in the foreground. If your network changes, your computer sleeps, or that SSH connection
-closes, the browser will temporarily lose access. Delta Loop itself continues running inside `tmux`; rerun the
-tunnel command and reload the page to reconnect.
+The plain tunnel command stays in the foreground but does not retry by itself. If the computer sleeps, rerun it and
+reload the page. A VS Code forwarded port may still appear open after sleep while returning no page; close that
+forward or use `delta-loop connect`, which automatically selects another local port when necessary.
+
+When `tmux` is installed, Delta Loop also keeps each newly opened terminal and Codex conversation in its own tmux
+session and records the attachment in `~/.delta-loop/terminals.json`. Restarting the Delta Loop web process then
+reattaches the same conversation and restores its terminal history instead of showing an empty terminal list.
+Ending a terminal from the UI still ends that tmux session intentionally.
+
+Every running Delta Loop session appears as a tab in the terminal panel. Use **New → Agent chat** to start another
+Codex conversation or **New → Terminal** for another command line, then click the tabs to move between them. Hiding
+the panel leaves every tab running. **End** stops only the selected tab; **Stop all** stops every Delta Loop terminal
+for the current project but does not delete Codex's saved conversation history.
 
 For a short session where you do not need Delta Loop to survive disconnection, you can start the app and tunnel
 together with one command from your computer:

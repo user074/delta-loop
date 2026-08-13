@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import select
+import socket
+import subprocess
 import sys
 import termios
 import threading
@@ -47,6 +49,15 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     serve_parser = subparsers.add_parser("serve", help="Run the local Delta Loop API")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", default=4318, type=int)
+
+    connect_parser = subparsers.add_parser(
+        "connect",
+        help="Open a remote Delta Loop through a reconnecting SSH tunnel",
+    )
+    connect_parser.add_argument("host", help="SSH host or alias for the server running Delta Loop")
+    connect_parser.add_argument("--remote-port", default=4317, type=int)
+    connect_parser.add_argument("--local-port", default=4318, type=int)
+    connect_parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
 
     import_parser = subparsers.add_parser("import", help="Preview a delta-research workspace import")
     import_parser.add_argument("path")
@@ -351,6 +362,15 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
         )
         return
 
+    if args.command == "connect":
+        _connect_remote(
+            args.host,
+            args.remote_port,
+            args.local_port,
+            not args.no_open,
+        )
+        return
+
     if args.command == "terminal":
         _attach_terminal(args.url, args.session_id)
         return
@@ -566,7 +586,10 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
 
 
 def ui_main() -> None:
-    main(["ui", *sys.argv[1:]], program="delta-loop")
+    if len(sys.argv) > 1 and sys.argv[1] == "connect":
+        main(sys.argv[1:], program="delta-loop")
+    else:
+        main(["ui", *sys.argv[1:]], program="delta-loop")
 
 
 def _default_data_path() -> Path:
@@ -590,6 +613,89 @@ def _open_when_ready(url: str) -> None:
             webbrowser.open(url)
             return
         time.sleep(0.1)
+
+
+def _port_is_available(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        try:
+            listener.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def _connection_port(preferred: int) -> tuple[int, bool]:
+    preferred_url = f"http://127.0.0.1:{preferred}"
+    if _app_is_running(preferred_url):
+        return preferred, True
+    if _port_is_available(preferred):
+        return preferred, False
+    for candidate in range(preferred + 1, preferred + 21):
+        if _app_is_running(f"http://127.0.0.1:{candidate}"):
+            return candidate, True
+        if _port_is_available(candidate):
+            return candidate, False
+    raise SystemExit(
+        f"Could not find a free local port from {preferred} through {preferred + 20}."
+    )
+
+
+def _connect_remote(
+    host: str,
+    remote_port: int,
+    local_port: int,
+    open_browser: bool,
+) -> None:
+    chosen_port, already_connected = _connection_port(local_port)
+    url = f"http://127.0.0.1:{chosen_port}"
+    if already_connected:
+        print(f"Delta Loop is already reachable at {url}")
+        if open_browser:
+            webbrowser.open(url)
+        return
+    if chosen_port != local_port:
+        print(
+            f"Local port {local_port} is occupied but not responding. "
+            f"Using {chosen_port} instead."
+        )
+
+    command = [
+        "ssh",
+        "-N",
+        "-o", "ExitOnForwardFailure=yes",
+        "-o", "ConnectTimeout=10",
+        "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=3",
+        "-L", f"{chosen_port}:127.0.0.1:{remote_port}",
+        host,
+    ]
+    opened = False
+    print(f"Connecting to remote Delta Loop at {url}")
+    print("Keep this command running. It will reconnect after sleep or a network interruption.")
+    print("Press Ctrl+C to disconnect.")
+    try:
+        while True:
+            process = subprocess.Popen(command)
+            while process.poll() is None:
+                if _app_is_running(url):
+                    if not opened:
+                        print(f"Delta Loop is ready at {url}")
+                        if open_browser:
+                            webbrowser.open(url)
+                        opened = True
+                    time.sleep(2)
+                else:
+                    time.sleep(1)
+            print("Connection was interrupted. Retrying…")
+            time.sleep(2)
+    except KeyboardInterrupt:
+        if "process" in locals() and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        print("\nDisconnected from remote Delta Loop.")
 
 
 def _run_ui(host: str, port: int, open_browser: bool, data_path: str | None) -> None:

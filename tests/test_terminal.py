@@ -1,3 +1,5 @@
+import os
+import signal
 import time
 from pathlib import Path
 
@@ -101,12 +103,27 @@ def test_research_supervisor_session_is_distinct_from_shell_and_chat(tmp_path: P
     manager.close(session.id)
 
 
-def test_default_agent_can_only_reach_delta_loop() -> None:
+def test_running_terminals_with_the_same_context_get_distinct_titles(tmp_path: Path) -> None:
+    manager = TerminalManager()
+    first = manager.create("workspace", str(tmp_path), "idea-1", title="Terminal · Idea")
+    second = manager.create("workspace", str(tmp_path), "idea-1", title="Terminal · Idea")
+
+    assert first.title == "Terminal · Idea"
+    assert second.title == "Terminal 2 · Idea"
+
+    manager.close(first.id)
+    manager.close(second.id)
+
+
+def test_default_agent_runs_without_prompts_inside_the_project() -> None:
+    assert "--ask-for-approval never" in DEFAULT_AGENT_COMMAND
+    assert "--sandbox workspace-write" in DEFAULT_AGENT_COMMAND
     assert "sandbox_workspace_write.network_access=true" in DEFAULT_AGENT_COMMAND
     assert "features.network_proxy.enabled=true" in DEFAULT_AGENT_COMMAND
     assert "features.network_proxy.allow_local_binding=true" in DEFAULT_AGENT_COMMAND
     assert 'domains={ "127.0.0.1" = "allow" }' in DEFAULT_AGENT_COMMAND
     assert "danger-full-access" not in DEFAULT_AGENT_COMMAND
+    assert "--yolo" not in DEFAULT_AGENT_COMMAND
 
 
 def test_installed_terminal_uses_the_single_app_address(tmp_path: Path) -> None:
@@ -123,3 +140,65 @@ def test_installed_terminal_uses_the_single_app_address(tmp_path: Path) -> None:
 
     assert b"api=http://127.0.0.1:4321" in output
     manager.close(session.id)
+
+
+def test_tmux_terminal_is_restored_after_manager_restart(tmp_path: Path, monkeypatch) -> None:
+    fake_state = tmp_path / "fake-tmux"
+    fake_state.mkdir()
+    fake_tmux = tmp_path / "tmux"
+    fake_tmux.write_text(
+        """#!/usr/bin/env python3
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(os.environ["FAKE_TMUX_DIR"])
+args = sys.argv[1:]
+command = args[0]
+flag = "-s" if command == "new-session" else "-t"
+name = args[args.index(flag) + 1]
+marker = root / f"{name}.session"
+history = root / f"{name}.history"
+
+if command == "new-session":
+    marker.write_text("active")
+elif command == "has-session":
+    raise SystemExit(0 if marker.exists() else 1)
+elif command == "capture-pane":
+    if history.exists():
+        sys.stdout.buffer.write(history.read_bytes())
+elif command == "display-message":
+    print("1")
+elif command == "kill-session":
+    marker.unlink(missing_ok=True)
+elif command == "attach-session":
+    while marker.exists():
+        data = os.read(0, 4096)
+        if not data:
+            break
+        with history.open("ab") as output:
+            output.write(data)
+        os.write(1, data)
+""",
+        encoding="utf-8",
+    )
+    fake_tmux.chmod(0o755)
+    monkeypatch.setenv("FAKE_TMUX_DIR", str(fake_state))
+    monkeypatch.setattr("delta_loop.terminal.shutil.which", lambda _name: str(fake_tmux))
+    registry = tmp_path / "terminals.json"
+
+    first_manager = TerminalManager(state_path=registry)
+    first = first_manager.create("workspace", str(tmp_path), "idea-1")
+    first_manager.write(first.id, b"conversation-before-restart\n")
+    time.sleep(0.1)
+    first_record = first_manager._sessions[first.id]
+    os.killpg(first_record.process.pid, signal.SIGTERM)
+    first_record.process.wait(timeout=3)
+
+    second_manager = TerminalManager(state_path=registry)
+    restored = second_manager.list("workspace")
+
+    assert [item.id for item in restored] == [first.id]
+    assert restored[0].status == "active"
+    assert b"conversation-before-restart" in second_manager.read(first.id)
+    second_manager.close(first.id)
