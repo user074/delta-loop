@@ -947,7 +947,7 @@ def _show_context(base_url: str, workspace_id: str | None, node_id: str | None, 
         if node["kind"] == "approach":
             print(f"Next work: {node['next_work_kind'].replace('-', ' ')}")
             print(f"Guidance: {node['agent_guidance'] or 'None recorded.'}")
-            print(f"Stop and ask before: {node['ask_before'] or 'No extra boundary recorded.'}")
+            print(f"Stop only if: {node['ask_before'] or 'No additional stop recorded.'}")
     else:
         print("No idea is selected for this terminal.")
 
@@ -1453,7 +1453,7 @@ def _show_policy(base_url: str, workspace_id: str | None, node_id: str | None) -
     print(f"Idea: {node['title']}")
     print(f"Next work: {node['next_work_kind'].replace('-', ' ')}")
     print(f"Guidance: {node['agent_guidance'] or 'None recorded.'}")
-    print(f"Stop and ask before: {node['ask_before'] or 'No extra boundary recorded.'}")
+    print(f"Stop only if: {node['ask_before'] or 'No additional stop recorded.'}")
 
 
 def _show_harness(base_url: str, workspace_id: str | None) -> None:

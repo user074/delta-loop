@@ -7,12 +7,6 @@ import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from 
 import type { DiscussionRequest } from "./discussions";
 import type { AppPage, ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
 
-const RESEARCH_START_PROMPT = [
-  "Start or continue the real research loop.",
-  "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md.",
-  "Use `delta work start` for execution. Continue until a stop rule, approval boundary, or blocker applies.",
-].join("\n\n");
-
 const nodeKindLabels: Record<ResearchNode["kind"], string> = {
   question: "research question",
   direction: "research idea",
@@ -21,13 +15,26 @@ const nodeKindLabels: Record<ResearchNode["kind"], string> = {
 };
 
 function researchStartPrompt(
+  workspace: Workspace,
   request: ResearchLaunchRequest,
   focus: ResearchNode | null,
 ) {
-  if (!focus) {
-    return `${RESEARCH_START_PROMPT}\n\nStarted from ${request.sourcePage}; use the whole research map.`;
-  }
-  return `${RESEARCH_START_PROMPT}\n\nStart from the selected ${nodeKindLabels[focus.kind]}: "${focus.title}" [${focus.id}].`;
+  const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
+  const focusInstruction = focus
+    ? `Start from the selected ${nodeKindLabels[focus.kind]}: "${focus.title}" [${focus.id}]. Continue elsewhere in the map when that path is exhausted or blocked.`
+    : `Started from ${request.sourcePage}; choose across the whole active research map.`;
+  const success = oneLine(workspace.initialization.success_condition) || "the active research question has a well-supported answer or the saved policy says the project is complete";
+  const stop = oneLine(workspace.initialization.stop_condition) || "no safe useful work remains after trying eligible alternatives";
+  const budget = oneLine(workspace.initialization.budget) || "the saved compute and resource limits";
+  return [
+    `/goal Advance the research question through repeated evidence-producing cycles without waiting for the researcher. Keep working until ${success}, ${stop}, or ${budget} is exhausted.`,
+    `Main research question: ${oneLine(workspace.goal)}`,
+    oneLine(focusInstruction),
+    "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md. Use `delta work start` for execution, follow each run to completion, check the result, update the research memory and map, and immediately begin the next useful cycle.",
+    "Do not ask for approval of plans, scientific choices, routine implementation or debugging, result interpretation, map updates, replication, or promotion to a larger study. Make the best policy-compliant choice and record the reason.",
+    "When uncertain, run the smallest safe test that can distinguish the options. If a path fails or is blocked, record why, park or revise it when appropriate, and continue with another eligible path.",
+    "Stop only for the saved success or stop condition, an exhausted compute or budget limit, a necessary action prohibited by policy, missing access that cannot be worked around, or when no safe useful work remains across the active map. The researcher may be away; absence is not a reason to pause.",
+  ].join(" ");
 }
 
 function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) {
@@ -386,7 +393,7 @@ export default function TerminalDock({
       : createTerminal(
         workspace.id,
         requestedFocus?.id ?? null,
-        researchStartPrompt(researchStartRequest, requestedFocus),
+        researchStartPrompt(workspace, researchStartRequest, requestedFocus),
         "research",
         requestedFocus ? `Research · ${requestedFocus.title}` : "Research · whole map",
       ))

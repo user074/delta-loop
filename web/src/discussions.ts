@@ -265,8 +265,8 @@ export function ideaPolicyDiscussion(node: ResearchNode): Omit<DiscussionRequest
     topic: "this idea's policy",
     prompt: [
       ...ideaOpening(node, "how the agent should work on this idea"),
-      "Discuss the kind of work, the short guidance, and the decisions that require the researcher. Do not start the work itself.",
-      "Once the researcher agrees, fill all three fields in one `delta policy set` command using `--kind`, `--guidance`, and `--ask-before`. If no extra stop point is needed, say that the general policy is enough rather than leaving the field unclear. Then summarize what changed.",
+      "Discuss the kind of work, the short guidance, and any true hard condition that should stop unattended research. Ordinary scientific, implementation, debugging, interpretation, and promotion choices should remain autonomous. Do not start the work itself.",
+      "Once the researcher agrees, fill all three fields in one `delta policy set` command using `--kind`, `--guidance`, and `--ask-before`. Use an empty `--ask-before` value when there is no additional hard stop. Then summarize what changed.",
     ].join("\n\n"),
   };
 }

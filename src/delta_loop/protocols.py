@@ -10,8 +10,8 @@ def default_protocols() -> list[ProtocolProfile]:
             version=1,
             name="Start small, then check more",
             description=(
-                "Start with a quick useful test. Do more work only after you review the result and decide it is "
-                "worth checking further."
+                "Start with a quick useful test. The agent checks the result and automatically does more work "
+                "when the evidence and saved limits justify it."
             ),
             stages=[
                 ProtocolStage(
@@ -20,7 +20,7 @@ def default_protocols() -> list[ProtocolProfile]:
                     purpose="See whether the idea causes any noticeable change.",
                     scope="Use existing code, one useful example, one basic comparison, and a small time limit.",
                     permitted_evidence="This only tells you whether the idea is worth checking again.",
-                    gate="You choose whether to check again, change the test, try another idea, or park it.",
+                    gate="The agent checks again, changes the test, tries another idea, or parks it based on the result.",
                     budget="Small",
                 ),
                 ProtocolStage(
@@ -29,7 +29,7 @@ def default_protocols() -> list[ProtocolProfile]:
                     purpose="See whether the first result happens again and is not caused by an obvious mistake.",
                     scope="Run it again, add one fair comparison, and check the most likely alternative reason.",
                     permitted_evidence="This tells you whether a larger study is worth the time and cost.",
-                    gate="You choose a full study, another check, a changed test, or stop.",
+                    gate="The agent starts a full study, runs another check, changes the test, or redirects based on the evidence and limits.",
                     budget="Medium",
                 ),
                 ProtocolStage(
@@ -38,7 +38,7 @@ def default_protocols() -> list[ProtocolProfile]:
                     purpose="Measure how large and reliable the result is, when it works, and when it fails.",
                     scope="Use all planned settings and comparisons, repeat when needed, and study failures.",
                     permitted_evidence="The result may support a final conclusion after you review it.",
-                    gate="You review what happened and decide what conclusion is justified.",
+                    gate="The agent records the evidence, its limits, and the justified working conclusion, then continues if useful work remains.",
                     budget="Large",
                 ),
             ],
@@ -55,7 +55,7 @@ def default_protocols() -> list[ProtocolProfile]:
                     purpose="See whether the original result happens again under the same conditions.",
                     scope="Use the original code, data, measurement, and setup when available.",
                     permitted_evidence="This only tells you whether the original result can be repeated.",
-                    gate="You choose whether to fix problems, change one thing, or stop.",
+                    gate="The agent fixes routine problems, changes one controlled factor, or redirects based on the result.",
                     budget="Medium",
                 ),
                 ProtocolStage(
@@ -64,7 +64,7 @@ def default_protocols() -> list[ProtocolProfile]:
                     purpose="See what happens when one part of the original test changes.",
                     scope="Change one chosen item and keep everything else the same.",
                     permitted_evidence="This gives an early view of where the result does or does not hold.",
-                    gate="You choose whether to explain the result, try another change, or stop.",
+                    gate="The agent explains the result, tries another controlled change, or redirects based on the evidence and limits.",
                     budget="Medium",
                 ),
             ],

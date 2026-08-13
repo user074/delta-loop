@@ -22,7 +22,7 @@ from .models import TerminalKind, TerminalSessionInfo, now_iso
 
 
 DEFAULT_AGENT_COMMAND = (
-    "codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox"
+    "codex --no-alt-screen --enable goals --dangerously-bypass-approvals-and-sandbox"
 )
 
 TRANSCRIPT_LIMIT_BYTES = 16 * 1024 * 1024
@@ -121,9 +121,14 @@ class TerminalManager:
             "DELTA_LOOP_INSTRUCTIONS": str(root / ".delta-loop" / "LOOP.md"),
         }
         command = [shell, "-l"]
+        initial_input: bytes | None = None
         if agent_prompt:
             agent_command = os.environ.get("DELTA_LOOP_AGENT_COMMAND", DEFAULT_AGENT_COMMAND)
-            command = [*shlex.split(agent_command), agent_prompt]
+            if agent_prompt.lstrip().startswith("/goal "):
+                command = shlex.split(agent_command)
+                initial_input = agent_prompt.strip().encode() + b"\r"
+            else:
+                command = [*shlex.split(agent_command), agent_prompt]
         base_title = title.strip() or ("Agent chat" if kind == "discussion" else "Research" if kind == "research" else "Terminal")
         with self._lock:
             active_titles = {
@@ -158,12 +163,41 @@ class TerminalManager:
             self._sessions[session_id] = record
             self._save()
         self._start_reader(record)
+        if initial_input:
+            self._queue_initial_input(record, initial_input)
         return info
 
     def list(self, workspace_id: str) -> list[TerminalSessionInfo]:
         self._refresh()
         with self._lock:
             return [record.info for record in self._sessions.values() if record.info.workspace_id == workspace_id]
+
+    @staticmethod
+    def _queue_initial_input(record: _TerminalRecord, data: bytes) -> None:
+        """Enter a TUI slash command only after the interactive screen is ready.
+
+        Passing `/goal` as Codex's positional PROMPT sends ordinary model text and
+        does not activate goal mode. Waiting for the first terminal output and then
+        typing into the PTY follows the same path as a researcher entering the slash
+        command in the composer.
+        """
+
+        def send_when_ready() -> None:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and record.process.poll() is None:
+                with record.lock:
+                    screen_started = record.next_sequence > 0
+                if screen_started:
+                    time.sleep(0.6)
+                    if record.process.poll() is None:
+                        try:
+                            os.write(record.master_fd, data)
+                        except OSError:
+                            pass
+                    return
+                time.sleep(0.05)
+
+        threading.Thread(target=send_when_ready, daemon=True).start()
 
     def get(self, session_id: str) -> TerminalSessionInfo | None:
         self._refresh()

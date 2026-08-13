@@ -99,6 +99,29 @@ def test_research_supervisor_session_is_distinct_from_shell_and_chat(tmp_path: P
     manager.close(session.id)
 
 
+def test_goal_is_typed_into_the_live_agent_instead_of_passed_as_plain_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DELTA_LOOP_AGENT_COMMAND", "/bin/sh")
+    manager = TerminalManager()
+    goal = "/goal Keep running research cycles until the saved stop condition applies."
+    session = manager.create("workspace", str(tmp_path), None, goal, "research")
+    record = manager._sessions[session.id]
+
+    assert record.process.args == ["/bin/sh"]
+
+    output = b""
+    for _ in range(80):
+        output += manager.read(session.id)
+        if goal.encode() in output:
+            break
+        time.sleep(0.05)
+
+    assert goal.encode() in output
+    manager.close(session.id)
+
+
 def test_running_terminals_with_the_same_context_get_distinct_titles(tmp_path: Path) -> None:
     manager = TerminalManager()
     first = manager.create("workspace", str(tmp_path), "idea-1", title="Terminal · Idea")
@@ -203,6 +226,7 @@ def test_agent_connection_forces_a_clean_redraw_without_tmux(
 
 def test_default_agent_can_manage_git_and_paths_outside_the_project() -> None:
     assert "--dangerously-bypass-approvals-and-sandbox" in DEFAULT_AGENT_COMMAND
+    assert "--enable goals" in DEFAULT_AGENT_COMMAND
     assert "--sandbox workspace-write" not in DEFAULT_AGENT_COMMAND
     assert "--ask-for-approval" not in DEFAULT_AGENT_COMMAND
 

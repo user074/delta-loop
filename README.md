@@ -86,7 +86,7 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Map every test and result back to the idea it examined
 - Discuss the research map with an agent that can add, clarify, move, or park ideas and ways to test them
 - Show which ideas worked, failed, remain uncertain, or have not been tested
-- Start, reopen, or continue one persistent research-supervisor session from the Home page
+- Start one persistent, continuous research session from the Home page; it chooses, runs, reviews, records, and begins the next useful test without waiting between cycles
 - Keep detailed agent plans underneath while showing only the method, data, and question to the researcher
 - Review the loop as main stages, child steps, or exact details; code, data, hardware, file, and Git instructions appear inside the steps that use them
 - See whether an instruction came from `delta-research`, a researcher preference, or a local lab rule
@@ -98,6 +98,7 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Check the remote project, Python, Git, and GPUs without starting research work
 - See the actual research repository separately from Delta Loop's local control folder, and check its branch, remote, upstream, and changed files without fetching
 - Let Codex manage reviewed commits and optional pushes only under explicit, checked Git policy rules
+- Keep unattended research inside saved success, stop, compute, budget, Git, and project rules instead of asking for routine scientific or implementation approval
 - Keep remote jobs running when the browser closes, reconnect to their status and recent logs, and show exactly where large output remains
 - Limit how many independent approved plans may run at the same time
 - Change the agent rules safely through checked, reversible versions
@@ -154,7 +155,7 @@ in the UI:
 delta context
 delta project inspect-remote --host lab-gpu --project ~/projects/my-research
 delta project read-remote --host lab-gpu --project ~/projects/my-research src/train.py src/model.py
-delta project finish-setup --summary "Short project summary" --prior-work "Baseline result" --reference /path/to/reference --input /path/to/dataset --success "A reproducible answer" --stop "Ask before changing the dataset" --budget "Two small GPU runs" --permissions scoped --environment-verified --git-reviewed --constraint "Do not change the evaluation dataset"
+delta project finish-setup --summary "Short project summary" --prior-work "Baseline result" --reference /path/to/reference --input /path/to/dataset --success "A reproducible answer" --stop "Stop if useful work would require changing the evaluation dataset" --budget "Two small GPU runs" --permissions scoped --environment-verified --git-reviewed --constraint "Do not change the evaluation dataset"
 delta compute show
 delta compute inspect --local
 delta compute inspect --host lab-gpu --project ~/projects/my-research
@@ -187,6 +188,18 @@ delta rules apply UPDATED_RULES.json
 delta harness show
 delta harness update
 ```
+
+**Start research** creates a Codex goal rather than one ordinary chat turn. The goal keeps the same supervisor
+working across repeated research cycles: choose a useful test, run it, check the evidence, update the research map,
+and start the next test. It does not wait for approval of a plan, routine implementation or debugging, scientific
+interpretation, replication, or promotion to a larger study. When a path is blocked, it records the problem and
+tries another eligible path.
+
+The goal stops only when the saved success or stop condition applies, the compute or budget limit is exhausted, a
+necessary action is prohibited by policy, required access is unavailable, or no safe useful work remains. You can
+still interrupt it at any time. In the research terminal, `/goal` shows its status, `/goal pause` pauses it, `/goal
+resume` continues it, and `/goal clear` ends the goal. Closing the Delta Loop terminal intentionally stops that
+terminal; merely hiding the panel or disconnecting the browser does not.
 
 The Research page lays out the saved main path from left to right rather than forcing item types into fixed columns.
 A path can continue through questions, ideas, experiments, literature reviews, findings, revised ideas, and follow-up

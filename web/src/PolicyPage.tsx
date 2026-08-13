@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock3,
   Cpu,
+  Infinity,
   MessageSquareText,
   RotateCcw,
   Route,
@@ -40,7 +41,7 @@ const workPolicyReferences: Record<string, string> = {
   "quick-test": "Uses the Quick Test extra check above.",
   replicate: "Uses “Replicate before expanding” above.",
   "literature-review": "Uses “Check the literature at major milestones” above.",
-  "full-study": "Uses “Ask before a full study” above.",
+  "full-study": "Uses “Promote useful signals to a full study” above.",
   "compare-explanations": "Uses the research loop plus this idea’s special instructions.",
   ablation: "Uses the research loop plus this idea’s special instructions.",
   "research-engineering": "Uses the research loop plus this idea’s special instructions.",
@@ -52,7 +53,7 @@ const checkpointReferences: Record<string, string> = {
   "ground-every-hypothesis": "The imported delta-research default",
   "replicate-promising-result": "Also used when Next work is Replicate",
   "literature-after-milestone": "Also used when Next work is Literature review",
-  "ask-before-full-study": "Used when Next work is Full study",
+  "ask-before-full-study": "Used when evidence may justify a Full study",
 };
 
 function RuleRow({ rule }: { rule: AgentRule }) {
@@ -100,6 +101,7 @@ export default function PolicyPage({
   const nestedDetailRules = detailRules.filter((rule) => rule.loop_step_ids.length > 0);
   const unassignedDetailRules = detailRules.filter((rule) => rule.loop_step_ids.length === 0);
   const temporaryRules = rules.filter((rule) => rule.category === "temporary");
+  const continuousRule = rules.find((rule) => rule.id === "continuous-research");
   const approaches = workspace.nodes.filter((node) => node.kind === "approach");
   const ideaExceptions = approaches.filter((node) => node.next_work_kind !== "quick-test" || node.agent_guidance || node.ask_before);
 
@@ -138,6 +140,18 @@ export default function PolicyPage({
         <div><Clock3 size={15} /><span>Temporary</span><strong>{temporaryRules.filter((rule) => rule.enabled).length} active</strong></div>
         <div><BookOpen size={15} /><span>Special cases</span><strong>{ideaExceptions.length}</strong></div>
       </div>
+
+      <section className={continuousRule?.enabled ? "autonomy-policy-card active" : "autonomy-policy-card"}>
+        <Infinity size={24} />
+        <div>
+          <div className="section-kicker">Approval policy</div>
+          <h2>{continuousRule?.enabled ? "Continuous research is on" : "Continuous research is off"}</h2>
+          <p>{continuousRule?.enabled
+            ? "After you start research, the agent chooses, runs, reviews, records, and begins the next useful test without waiting for you. It stops only at a saved hard limit or when no safe useful work remains."
+            : "The agent is not currently instructed to continue from one research cycle to the next while you are away."}</p>
+        </div>
+        <button onClick={() => discussPolicy("when autonomous research should continue and the few hard conditions that should stop it")}><MessageSquareText size={14} /> Chat</button>
+      </section>
 
       <div className="policy-sync-state">
         <CheckCircle2 size={18} />
@@ -231,7 +245,7 @@ export default function PolicyPage({
         <div className="loop-return"><RotateCcw size={14} /> If no stop rule applies, the agent returns to step 1 with the updated research state.</div>
 
         <div className="checkpoint-rail">
-          <div className="checkpoint-label">Extra checks can pause the loop</div>
+          <div className="checkpoint-label">Extra rules guide decisions inside the loop</div>
           {checkpoints.map((rule) => (
             <div className="checkpoint-stop" key={rule.id}>
               <span>{rule.when}</span><strong>{rule.title}</strong>{checkpointReferences[rule.id] && <b>{checkpointReferences[rule.id]}</b>}<p>{rule.instruction}</p>{rule.source_label && <small>{rule.source_label}</small>}
@@ -277,7 +291,7 @@ export default function PolicyPage({
               <div><strong>{approach.title}</strong><span>{approach.status === "dormant" ? "Parked" : approach.status}</span></div>
               <div><small>Next work</small><strong>{workKindLabels[approach.next_work_kind] ?? approach.next_work_kind}</strong><span className="work-policy-reference">{workPolicyReferences[approach.next_work_kind] ?? "Uses the research loop."}</span></div>
               <div><small>Special instructions</small><p>{approach.agent_guidance || "Use the research loop."}</p></div>
-              <div><small>Must ask before</small><p>{approach.ask_before || "Use the general checkpoints."}</p></div>
+              <div><small>Stop only if</small><p>{approach.ask_before || "No additional stop."}</p></div>
               <button onClick={() => discussIdea(approach)}><MessageSquareText size={14} /> Chat</button>
             </div>
           ))}

@@ -86,9 +86,9 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         "4. Match the proposed work to the closest way-to-test entry below and follow its `Next work`, guidance, and stop point.",
         "5. Do not select a way to test whose status is `dormant` or `closed`.",
         "6. Copy the applicable rule IDs and matched idea policy into `PLAN.md` before preserving `PLAN.initial.md` and starting a worker. That policy copy cannot change during the run.",
-        "7. If a matching rule or `Ask before` field requires human input, stop before planning or starting that action.",
+        "7. Treat a matching `Stop only if` field as a hard boundary. Do not turn ordinary uncertainty or a missing preference into an approval request.",
         "8. A rule for one idea may narrow the general policy, but it cannot override a required rule.",
-        "9. Start approved work through Delta Loop so it uses the saved compute location; do not silently move work to another machine.",
+        "9. Start work through Delta Loop so it uses the saved compute location; do not silently move work to another machine.",
         "10. Git rules apply to the research repository at the compute project path. For a remote project, the local Delta Loop folder stores control notes and is not the repository to commit.",
         "",
         "## Research map",
@@ -177,7 +177,7 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
             "",
             "Match by title and idea. If no entry clearly matches, use the enabled general rules and Quick Test.",
             "",
-            "| Way to test | Idea | Status | Next work | Special guidance | Ask before |",
+            "| Way to test | Idea | Status | Next work | Special guidance | Stop only if |",
             "|---|---|---|---|---|---|",
         ]
     )
@@ -201,14 +201,14 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
                     _table(approach.status),
                     _table(WORK_KIND_NAMES.get(approach.next_work_kind, approach.next_work_kind)),
                     _table(approach.agent_guidance or "Use the general policy"),
-                    _table(approach.ask_before or "Use the general extra checks"),
+                    _table(approach.ask_before or "No additional stop"),
                 ]
             )
             + " |"
         )
 
     if not approaches:
-        lines.append("| No ways to test an idea recorded | — | — | Quick Test | Use the general policy | Use the general extra checks |")
+        lines.append("| No ways to test an idea recorded | — | — | Quick Test | Use the general policy | No additional stop |")
 
     lines.extend(
         [
@@ -276,7 +276,7 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
         "",
         "1. Read this file and the current idea policy recorded above.",
         "2. Run `delta context` in a Delta Loop terminal to see the selected idea and current human choices.",
-        "3. Run `delta compute show` before planning execution. If no location is configured, stop and ask the researcher to set one up.",
+        "3. Run `delta compute show` before planning execution. If no location is configured, report that concrete setup blocker; do not pretend research work ran.",
         "4. If a Git rule is enabled, run `delta git check` and apply Git only to the actual research repository shown there, not Delta Loop's local control folder.",
         "5. If either generated file cannot be read, stop and report the blocker instead of guessing.",
         "",
@@ -326,7 +326,7 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
                             lines.append(f"  - **Source:** {_line(rule.source_label)}")
                     lines.append("")
     else:
-        lines.extend(["No main research stage is active. Stop and ask the researcher to repair the policy.", ""])
+        lines.extend(["No main research stage is active. Report this concrete policy blocker; research cannot run until a stage is restored.", ""])
 
     lines.extend(["## Checks and limits that apply across the loop", ""])
     for rule in shared_rules:
@@ -359,13 +359,15 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
             "- requested next-work type",
             "- applicable rule IDs",
             "- special instructions",
-            "- the point at which the agent must ask",
+            "- any hard condition that would make the work stop",
             "",
             "Copy that exact section into the worker handoff. The running work follows the sealed copy even if the policy changes later.",
             "",
             "## When to stop",
             "",
-            "Stop and tell the researcher when a required approval applies, the main question or scientific comparison would change, a budget or hardware limit would be crossed, the next action is irreversible, the result cannot be trusted, or no useful next test can be chosen. Do not stop merely to ask whether an otherwise approved cycle should continue.",
+            "Do not stop for ordinary scientific choices, plan approval, implementation choices, result interpretation, map updates, or promotion to the next investigation stage. When uncertain, run the cheapest safe test that can reduce the uncertainty. If one path is blocked, record it and continue with another eligible path.",
+            "",
+            "Stop only when a saved success or stop condition applies, the remaining budget or hardware limit prevents useful work, the next necessary action is prohibited or materially irreversible, required access is unavailable, or no safe useful test remains anywhere in the active research map.",
             "",
             "## Persistent terminal",
             "",
@@ -376,10 +378,11 @@ def render_loop_instructions(workspace: ProjectSnapshot, synced_at: str | None =
             "Required safety rule → matching idea policy → other enabled rules → the active research-loop step.",
             "",
             (
-                "Pushing is allowed only at the exact point described by an enabled Git rule; otherwise stop and ask. "
-                "No policy rule by itself authorizes publishing elsewhere, deleting data, spending money, or another outside side effect."
+                "Push only at the exact point described by an enabled Git rule. If pushing is not authorized, "
+                "skip the push and continue the research loop. No policy rule by itself authorizes publishing "
+                "elsewhere, deleting data, spending money, or another outside side effect."
                 if git_rules
-                else "No Git rule is enabled. Do not commit or push. Publishing, deleting data, spending money, or another outside side effect also requires explicit approval."
+                else "No Git rule is enabled. Do not commit or push; keep researching without those Git actions. Publishing elsewhere, deleting data, spending money, or another outside side effect is prohibited."
             ),
             "",
         ]

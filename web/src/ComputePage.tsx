@@ -438,7 +438,7 @@ export default function ComputePage({
           <div>
             <div className="section-kicker"><Github size={14} /> Git &amp; GitHub</div>
             <h2>Let Codex keep reviewed work in the repository</h2>
-            <p>Check the real research repository, then decide when Codex may commit, push, or must stop and ask you.</p>
+            <p>Check the real research repository, then decide when Codex may commit or push and which Git actions remain off.</p>
           </div>
           <div className="git-control-actions">
             <button onClick={checkRepository} disabled={!canCheckGit || checkingGit}>
