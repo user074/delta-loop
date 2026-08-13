@@ -58,7 +58,7 @@ function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) 
   ].join("\n\n");
 }
 
-type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "ended";
+type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "elsewhere" | "ended";
 
 function TerminalView({
   session,
@@ -150,6 +150,16 @@ function TerminalView({
           try {
             const message = JSON.parse(event.data) as { type?: string };
             if (message.type === "ready") {
+              // The panel may have finished opening while the WebSocket was
+              // preparing its first screen. Send the final measured size even
+              // when xterm's earlier resize event occurred before the socket
+              // was ready.
+              fit.fit();
+              socket?.send(JSON.stringify({
+                type: "resize",
+                columns: terminal.cols,
+                rows: terminal.rows,
+              }));
               readyForInput = true;
               retries = 0;
               reconnectMessageShown = false;
@@ -169,6 +179,11 @@ function TerminalView({
       };
       socket.onclose = (event) => {
         if (disposed) return;
+        if (event.code === 4410) {
+          terminal.writeln("\r\nThis terminal moved to another browser view. Hide and show it here to take control again.");
+          onConnectionChange(session.id, "elsewhere");
+          return;
+        }
         if (terminalEnded || event.code === 4404) {
           if (event.code === 4404) terminal.writeln("\r\nThis terminal was not found after the server restarted.");
           onConnectionChange(session.id, "ended");
@@ -176,9 +191,7 @@ function TerminalView({
           return;
         }
         if (!reconnectMessageShown) {
-          terminal.writeln(event.code === 4409
-            ? "\r\nThe terminal is still attached elsewhere. Retrying…"
-            : "\r\nConnection interrupted. Reconnecting…");
+          terminal.writeln("\r\nConnection interrupted. Reconnecting…");
           reconnectMessageShown = true;
         }
         onConnectionChange(session.id, "reconnecting");

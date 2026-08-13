@@ -9,7 +9,8 @@ from delta_loop.terminal import DEFAULT_AGENT_COMMAND, TerminalManager
 def test_terminal_survives_detach_and_accepts_input(tmp_path: Path) -> None:
     manager = TerminalManager()
     session = manager.create("workspace", str(tmp_path), "idea-1")
-    assert manager.acquire_input(session.id)
+    first_connection = manager.acquire_input(session.id)
+    assert manager.owns_input(session.id, first_connection)
     manager.write(
         session.id,
         b"if command -v delta >/dev/null; then printf 'delta-command-ok\\n'; fi; "
@@ -23,11 +24,14 @@ def test_terminal_survives_detach_and_accepts_input(tmp_path: Path) -> None:
             break
         time.sleep(0.05)
 
-    manager.release_input(session.id)
-    assert manager.acquire_input(session.id)
+    second_connection = manager.acquire_input(session.id)
+    assert not manager.owns_input(session.id, first_connection)
+    assert manager.owns_input(session.id, second_connection)
+    manager.release_input(session.id, first_connection)
+    assert manager.owns_input(session.id, second_connection)
     assert b"terminal-ok" in output
     assert b"delta-command-ok" in output
-    manager.release_input(session.id)
+    manager.release_input(session.id, second_connection)
     manager.close(session.id)
 
 
@@ -249,16 +253,22 @@ def test_persistent_resize_sets_tmux_window_to_browser_size(
     record.tmux_session = "delta-loop-test"
     manager._tmux = "/fake/tmux"
     commands: list[list[str]] = []
+    signals: list[tuple[int, int]] = []
 
     def run(command: list[str], **_kwargs):
         commands.append(command)
         return type("Result", (), {"returncode": 0})()
 
     monkeypatch.setattr("delta_loop.terminal.subprocess.run", run)
+    monkeypatch.setattr(
+        "delta_loop.terminal.os.killpg",
+        lambda pid, sent_signal: signals.append((pid, sent_signal)),
+    )
 
     manager.resize(session.id, 164, 51)
 
     assert manager._get_size(record.master_fd) == (164, 51)
+    assert signals == [(record.process.pid, signal.SIGWINCH)]
     assert commands == [[
         "/fake/tmux",
         "resize-window",
