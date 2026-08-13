@@ -54,7 +54,7 @@ def test_terminal_can_start_an_agent_discussion(tmp_path: Path, monkeypatch) -> 
     manager.close(session.id)
 
 
-def test_agent_discussion_receives_complete_loop_and_policy_paths(tmp_path: Path, monkeypatch) -> None:
+def test_agent_discussion_receives_only_requested_startup_message(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DELTA_LOOP_AGENT_COMMAND", "/usr/bin/printf")
     manager = TerminalManager()
     session = manager.create(
@@ -67,15 +67,11 @@ def test_agent_discussion_receives_complete_loop_and_policy_paths(tmp_path: Path
     output = b""
     for _ in range(60):
         output += manager.read(session.id)
-        if b"LOOP.md" in output and b"POLICY.md" in output:
+        if b"Discuss the selected idea." in output:
             break
         time.sleep(0.05)
 
-    assert str(tmp_path / ".delta-loop" / "LOOP.md").encode() in output
-    assert str(tmp_path / ".delta-loop" / "POLICY.md").encode() in output
-    assert b"complete active loop" in output
-    assert b"another supervisor file" in output
-    assert b"SUPERVISOR.md" not in output
+    assert output == b"Discuss the selected idea."
     manager.close(session.id)
 
 
@@ -99,7 +95,7 @@ def test_research_supervisor_session_is_distinct_from_shell_and_chat(tmp_path: P
 
     assert session.kind == "research"
     assert b"Start the real research loop" in output
-    assert str(tmp_path / ".delta-loop" / "LOOP.md").encode() in output
+    assert b"LOOP.md" not in output
     manager.close(session.id)
 
 

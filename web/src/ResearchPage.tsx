@@ -68,8 +68,8 @@ export default function ResearchPage({
         workspace={workspace}
         selectedId={selectedId}
         onSelect={onSelect}
-        onDiscuss={() => onDiscuss(researchMapDiscussion(workspace, selected))}
-        onAddQuestion={() => onDiscuss(addResearchQuestionDiscussion(workspace))}
+        onDiscuss={() => onDiscuss(researchMapDiscussion(selected))}
+        onAddQuestion={() => onDiscuss(addResearchQuestionDiscussion())}
       />
       <ResearchDetail
         node={selected}
@@ -267,12 +267,12 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: 
         <div className="detail-heading"><div className="section-kicker">Selected {nodeKindLabels[node.kind].toLowerCase()}</div><h2>{node.title}</h2>{node.summary && <p>{node.summary}</p>}</div>
 
         <div className="research-item-actions">
-          {node.kind === "question" && <button className="primary" onClick={() => onDiscuss(addIdeaFromQuestionDiscussion(workspace, node))}><Plus size={14} /><span><strong>Add idea</strong><small>Develop a direction for this question</small></span></button>}
-          {node.kind === "direction" && <button className="primary" onClick={() => onDiscuss(addExperimentFromIdeaDiscussion(workspace, node))}><Plus size={14} /><span><strong>Add experiment</strong><small>Turn this idea into a concrete test</small></span></button>}
+          {node.kind === "question" && <button className="primary" onClick={() => onDiscuss(addIdeaFromQuestionDiscussion(node))}><Plus size={14} /><span><strong>Add idea</strong><small>Develop a direction for this question</small></span></button>}
+          {node.kind === "direction" && <button className="primary" onClick={() => onDiscuss(addExperimentFromIdeaDiscussion(node))}><Plus size={14} /><span><strong>Add experiment</strong><small>Turn this idea into a concrete test</small></span></button>}
           <div className="research-item-secondary-actions">
-            <button onClick={() => onDiscuss(researchMapDiscussion(workspace, node))}><MessageSquareText size={13} /> Explore</button>
-            <button onClick={() => onDiscuss(reviseResearchNodeDiscussion(workspace, node))}><Pencil size={13} /> Revise</button>
-            <button onClick={() => onDiscuss(connectResearchNodeDiscussion(workspace, node))}><Link2 size={13} /> Connect</button>
+            <button onClick={() => onDiscuss(researchMapDiscussion(node))}><MessageSquareText size={13} /> Explore</button>
+            <button onClick={() => onDiscuss(reviseResearchNodeDiscussion(node))}><Pencil size={13} /> Revise</button>
+            <button onClick={() => onDiscuss(connectResearchNodeDiscussion(node))}><Link2 size={13} /> Connect</button>
           </div>
         </div>
 

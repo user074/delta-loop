@@ -8,11 +8,9 @@ import type { DiscussionRequest } from "./discussions";
 import type { AppPage, ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
 
 const RESEARCH_START_PROMPT = [
-  "You are starting or continuing the project's real research loop as its persistent supervisor. This is research work, not a discussion about how the loop should work.",
-  "Run `delta context` and `delta compute show` first. Then follow the complete active LOOP.md and POLICY.md supplied to this session, starting from the first incomplete step.",
-  "Use the current research map and policy to choose the next eligible, useful test. Respect any idea-specific instructions and every point where the researcher must be asked.",
-  "When execution is needed, start one sealed, bounded piece of work with `delta work start`; do not bypass the saved compute location by running the research command directly. Follow it with `delta work show`. Keep the detailed evidence auditable and update the project research memory after checking the result.",
-  "Continue through immediate cycles until an active stop rule, approval boundary, genuine blocker, or ambiguity requires the researcher. Do not stop merely to narrate progress, rehearse Delta Loop, or ask whether you should continue.",
+  "Start or continue the real research loop.",
+  "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md.",
+  "Use `delta work start` for execution. Continue until a stop rule, approval boundary, or blocker applies.",
 ].join("\n\n");
 
 const nodeKindLabels: Record<ResearchNode["kind"], string> = {
@@ -22,53 +20,29 @@ const nodeKindLabels: Record<ResearchNode["kind"], string> = {
 };
 
 function researchStartPrompt(
-  workspace: Workspace,
   request: ResearchLaunchRequest,
   focus: ResearchNode | null,
 ) {
   if (!focus) {
-    return `${RESEARCH_START_PROMPT}\n\nThe researcher started this session from the ${request.sourcePage} page without pointing to a specific item in the research map. Consider the whole research map when choosing the next work.`;
+    return `${RESEARCH_START_PROMPT}\n\nStarted from ${request.sourcePage}; use the whole research map.`;
   }
-
-  const connections = workspace.research_links.filter((link) => link.source_id === focus.id || link.target_id === focus.id);
-  const connectedItems = connections.flatMap((link) => {
-    const outgoing = link.source_id === focus.id;
-    const other = workspace.nodes.find((node) => node.id === (outgoing ? link.target_id : link.source_id));
-    return other ? [`${outgoing ? link.relationship : `${link.relationship} this`}: ${other.title}`] : [];
-  });
-  const focusDetails = [
-    "The researcher pressed the research button while this item was selected on the visual Research page. Treat it as their current focus and begin by considering work in this branch. This is an attention signal, not permission to ignore the active policy or its approval boundaries.",
-    `Selected item type: ${nodeKindLabels[focus.kind]}`,
-    `Selected item ID: ${focus.id}`,
-    `Selected item: ${focus.title}`,
-    focus.summary ? `Summary: ${focus.summary}` : "",
-    `Status: ${focus.status}`,
-    `Potential: ${focus.promise}`,
-    `Evidence so far: ${focus.evidence_strength}`,
-    connectedItems.length ? `Connected research items: ${connectedItems.join("; ")}` : "No research relationships are recorded for this item yet.",
-    focus.kind === "approach" ? `Next work requested in the UI: ${focus.next_work_kind}` : "",
-    focus.agent_guidance ? `Special guidance for this item: ${focus.agent_guidance}` : "",
-    focus.ask_before ? `Ask the researcher before: ${focus.ask_before}` : "",
-  ].filter(Boolean);
-  return `${RESEARCH_START_PROMPT}\n\n${focusDetails.join("\n")}`;
+  return `${RESEARCH_START_PROMPT}\n\nStart from the selected ${nodeKindLabels[focus.kind]}: "${focus.title}" [${focus.id}].`;
 }
 
-function additionalChatPrompt(workspace: Workspace, currentPage: AppPage, focus: ResearchNode | null) {
+function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) {
   const focusText = currentPage === "research" && focus
-    ? `The researcher opened this additional chat from the Research page while focused on the ${nodeKindLabels[focus.kind]} "${focus.title}" [${focus.id}]. Use that as context, but do not assume what they want changed.`
+    ? `This chat was opened from Research with this ${nodeKindLabels[focus.kind]} selected: "${focus.title}" [${focus.id}].`
     : currentPage === "policy"
-      ? "The researcher opened this additional chat from the Policy page. Discuss the research loop or agent rules. Do not carry over a research-map selection from another page unless the researcher explicitly asks to connect it."
+      ? "This chat was opened from Policy. Do not use a selection from another page unless the researcher mentions it."
       : currentPage === "compute"
-        ? "The researcher opened this additional chat from the Compute page. Discuss this project's machine, environment, remote connection, resources, or Git setup. Do not carry over a research-map selection from another page."
+        ? "This chat was opened from Compute. Do not use a selection from another page."
         : currentPage === "home"
-          ? "The researcher opened this additional chat from the Home page. Start from the project's overall research status rather than a previously selected map item."
-          : "The researcher opened this additional chat without selecting a particular research item.";
+          ? "This chat was opened from Home. Start from the overall project, not a previous selection."
+          : "No research item is selected for this chat.";
   return [
-    "You are an additional Delta Loop discussion session. This chat runs alongside other terminals; do not stop, replace, or take over another session.",
-    "Run `delta context` first so you understand the current project and active rules.",
+    "This is a separate Delta Loop chat. Run `delta context` first.",
     focusText,
-    "Ask one short question about what the researcher wants to discuss. Do not start experiments or edit the research project until they clearly request work in this chat.",
-    `Project: ${workspace.name}`,
+    "Ask what the researcher wants to do. Do not start research work unless they request it here.",
   ].join("\n\n");
 }
 
@@ -413,7 +387,7 @@ export default function TerminalDock({
       : createTerminal(
         workspace.id,
         requestedFocus?.id ?? null,
-        researchStartPrompt(workspace, researchStartRequest, requestedFocus),
+        researchStartPrompt(researchStartRequest, requestedFocus),
         "research",
         requestedFocus ? `Research · ${requestedFocus.title}` : "Research · whole map",
       ))
@@ -462,7 +436,7 @@ export default function TerminalDock({
       const session = await createTerminal(
         workspace.id,
         pageFocus?.id ?? null,
-        additionalChatPrompt(workspace, currentPage, pageFocus),
+        additionalChatPrompt(currentPage, pageFocus),
         "discussion",
         title,
       );
