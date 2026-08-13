@@ -145,6 +145,7 @@ export default function HomePage({
               <div className="slide-summary-grid">
                 <div><span>What it tested</span><p>{latestPlan.goal || "Not summarized yet."}</p></div>
                 <div><span>Starting method</span><p>{latestPlan.instructions || latestPlan.comparison || "See the saved run details."}</p></div>
+                {latestAttempt.execution_history.length > 0 && <div><span>Implementation work</span><p>{latestAttempt.execution_history.length + 1} tries stayed inside this one research run.</p></div>}
                 <div><span>Data and inputs</span><p>{latestPlan.inputs || "Not summarized yet."}</p></div>
                 {latestReview?.adaptations && <div><span>How the method changed</span><p>{latestReview.adaptations}</p></div>}
                 <div className="result-cell"><span>Result and review</span><p>{latestReview?.what_it_means || latestAttempt.output.slice(-4).join(" ") || "The result has not been summarized yet."}</p></div>

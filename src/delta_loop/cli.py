@@ -220,6 +220,17 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     work_start.add_argument("--limits", default="")
     work_start.add_argument("--do-not-change", default="", dest="do_not_change")
     work_start.add_argument("--budget", default="Small")
+    work_retry = work_subparsers.add_parser(
+        "retry",
+        help="Repair the implementation inside an existing research run",
+    )
+    work_retry.add_argument("run_id")
+    work_retry.add_argument("--command", required=True)
+    work_retry.add_argument(
+        "--reason",
+        required=True,
+        help="What implementation problem changed; this is not a new scientific run",
+    )
     work_review = work_subparsers.add_parser(
         "review", help="Record what a completed test says about the idea"
     )
@@ -248,7 +259,7 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     work_review.add_argument("--keep-code", action="store_true")
     work_cancel = work_subparsers.add_parser("cancel", help="Stop a running job")
     work_cancel.add_argument("run_id")
-    for item in (work_show, work_start, work_review, work_cancel):
+    for item in (work_show, work_start, work_retry, work_review, work_cancel):
         item.add_argument("--workspace")
         item.add_argument(
             "--url",
@@ -528,6 +539,14 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
                 args.adaptations,
                 args.notes,
                 args.keep_code,
+            )
+        elif args.work_command == "retry":
+            _retry_work(
+                args.url,
+                args.workspace,
+                args.run_id,
+                args.command,
+                args.reason,
             )
         else:
             _cancel_work(args.url, args.workspace, args.run_id)
@@ -1398,6 +1417,9 @@ def _show_work(base_url: str, workspace_id: str | None, as_json: bool) -> None:
         )
         print(f"{attempt['id']} · {attempt['status']} · {plan.get('title', 'Research work')}")
         print(f"  Ran on: {location}")
+        tries = len(attempt.get("execution_history", [])) + 1
+        if tries > 1:
+            print(f"  Implementation: {tries} tries inside this one research run")
         if output:
             print(f"  Output: {output}")
         if attempt.get("output"):
@@ -1481,6 +1503,28 @@ def _cancel_work(base_url: str, workspace_id: str | None, run_id: str) -> None:
         method="POST",
     )
     print(f"Stopped {run_id}.")
+
+
+def _retry_work(
+    base_url: str,
+    workspace_id: str | None,
+    run_id: str,
+    command: str,
+    reason: str,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    run_path = urllib.parse.quote(run_id, safe="")
+    retried = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/runs/{run_path}/retry",
+        method="POST",
+        payload={"command": command, "reason": reason},
+    )
+    attempt = next(item for item in retried["attempts"] if item["id"] == run_id)
+    try_number = len(attempt.get("execution_history", [])) + 1
+    print(f"Repaired {run_id}; implementation try {try_number} is running inside the same research run.")
+    print("Do not create a new run unless the scientific question, comparison, or measurement changes.")
 
 
 def _review_work(

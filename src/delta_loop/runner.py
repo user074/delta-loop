@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .compute import ComputeFailure, remote_shell_command, run_ssh
-from .models import Attempt, ComputeConfig, now_iso
+from .models import Attempt, ComputeConfig, ExecutionTry, now_iso
 from .rules import render_rules
 from .store import WorkspaceStore
 
@@ -45,14 +45,7 @@ class AttemptRunner:
             raise RunFailure("Set up where research work runs on the Compute page first.")
         if compute.kind == "ssh" and compute.status != "ready":
             raise RunFailure("Check the remote connection on the Compute page before starting work.")
-        active_runs = sum(
-            attempt.status in {"starting", "running"} for attempt in workspace.attempts
-        )
-        if active_runs >= compute.max_parallel:
-            noun = "plan is" if compute.max_parallel == 1 else "plans are"
-            raise RunFailure(
-                f"{compute.max_parallel} {noun} already running. Wait for one to finish or stop it first."
-            )
+        self._check_capacity(workspace, compute)
         try:
             command = shlex.split(package.command)
         except ValueError as exc:
@@ -73,14 +66,106 @@ class AttemptRunner:
         workspace.attempts.append(attempt)
         package.status = "running"
         self.store.save(workspace)
+        self._launch(workspace_id, package_id, attempt.id, compute)
+        return attempt
+
+    def retry(
+        self,
+        workspace_id: str,
+        attempt_id: str,
+        command_text: str,
+        reason: str,
+    ) -> Attempt:
+        workspace = self.store.get(workspace_id)
+        if not workspace:
+            raise RunFailure("Project not found.")
+        attempt = next((item for item in workspace.attempts if item.id == attempt_id), None)
+        if not attempt:
+            raise RunFailure("Research run not found.")
+        if attempt.status not in {"finished", "blocked", "failed", "cancelled"}:
+            raise RunFailure("Wait for the current implementation try to end before repairing it.")
+        if any(review.attempt_id == attempt.id for review in workspace.reviews):
+            raise RunFailure(
+                "This research run already has an evidence review. Start a new run only for a genuinely new scientific test."
+            )
+        package = next(
+            (item for item in workspace.packages if item.id == attempt.package_id), None
+        )
+        if not package:
+            raise RunFailure("Test brief not found.")
+        compute = workspace.compute
+        if not compute.configured:
+            raise RunFailure("Set up where research work runs on the Compute page first.")
+        if compute.kind != attempt.executor:
+            raise RunFailure("Keep implementation retries on the same compute location as the research run.")
+        if compute.kind == "ssh" and (
+            compute.status != "ready" or compute.ssh_host != attempt.remote_host
+        ):
+            raise RunFailure("Reconnect the same remote server before retrying this research run.")
+        self._check_capacity(workspace, compute)
+        try:
+            command = shlex.split(command_text)
+        except ValueError as exc:
+            raise RunFailure(f"The repaired command cannot be read: {exc}") from exc
+        if not command:
+            raise RunFailure("Add the repaired command that should be run.")
+        if not reason.strip():
+            raise RunFailure("Explain the implementation repair so the retry remains auditable.")
+
+        attempt.execution_history.append(
+            ExecutionTry(
+                number=len(attempt.execution_history) + 1,
+                command=list(attempt.command),
+                reason=attempt.current_try_reason,
+                status=attempt.status,
+                started_at=attempt.current_try_started_at,
+                finished_at=attempt.finished_at,
+                exit_code=attempt.exit_code,
+                output_tail=attempt.output[-200:],
+                error=attempt.error,
+                output_directory=attempt.output_directory,
+                remote_output_directory=attempt.remote_output_directory,
+            )
+        )
+        attempt.command = command
+        attempt.current_try_reason = reason.strip()
+        attempt.current_try_started_at = now_iso()
+        attempt.status = "starting"
+        attempt.pid = None
+        attempt.finished_at = None
+        attempt.exit_code = None
+        attempt.output = []
+        attempt.error = None
+        attempt.last_checked_at = ""
+        package.status = "running"
+        self.store.save(workspace)
+        self._launch(workspace_id, package.id, attempt.id, compute)
+        return attempt
+
+    def _check_capacity(self, workspace, compute: ComputeConfig) -> None:
+        active_runs = sum(
+            attempt.status in {"starting", "running"} for attempt in workspace.attempts
+        )
+        if active_runs >= compute.max_parallel:
+            noun = "run is" if compute.max_parallel == 1 else "runs are"
+            raise RunFailure(
+                f"{compute.max_parallel} research {noun} already active. Wait for one to finish or stop it first."
+            )
+
+    def _launch(
+        self,
+        workspace_id: str,
+        package_id: str,
+        attempt_id: str,
+        compute: ComputeConfig,
+    ) -> None:
         target = self._run_local if compute.kind == "local" else self._run_remote
         threading.Thread(
             target=target,
-            args=(workspace_id, package_id, attempt.id, compute.model_copy(deep=True)),
-            name=f"delta-loop-{attempt.id}",
+            args=(workspace_id, package_id, attempt_id, compute.model_copy(deep=True)),
+            name=f"delta-loop-{attempt_id}",
             daemon=True,
         ).start()
-        return attempt
 
     def refresh(self, workspace_id: str, *, force: bool = False) -> None:
         now = time.monotonic()
@@ -100,7 +185,8 @@ class AttemptRunner:
 
     def _prepare_record(self, workspace, package, attempt: Attempt) -> tuple[Path, Path, Path]:
         record_directory = self.store.path.parent / "runs" / attempt.id
-        output_directory = record_directory / "output"
+        try_number = len(attempt.execution_history) + 1
+        output_directory = record_directory / "output" / f"try-{try_number}"
         output_directory.mkdir(parents=True, exist_ok=True)
         handoff_file = record_directory / "PLAN.md"
         rules_version = next(
@@ -213,7 +299,8 @@ class AttemptRunner:
         package = next(item for item in workspace.packages if item.id == package_id)
         _, _, handoff_file = self._prepare_record(workspace, package, attempt)
         remote_record = f"{compute.run_path.rstrip('/')}/{attempt.id}"
-        remote_output = f"{remote_record}/output"
+        try_number = len(attempt.execution_history) + 1
+        remote_output = f"{remote_record}/output/try-{try_number}"
         attempt.remote_record_directory = remote_record
         attempt.remote_output_directory = remote_output
         self.store.save(workspace)
@@ -243,15 +330,18 @@ setup=$3
 gpus=$4
 command=$5
 plan_id=$6
+try_number=$7
 case "$run_dir" in '~/'*) run_dir="$HOME/${run_dir#'~/'}" ;; esac
 case "$project" in '~/'*) project="$HOME/${project#'~/'}" ;; esac
-mkdir -p "$run_dir/output"
+mkdir -p "$run_dir/output/try-$try_number"
+rm -f "$run_dir/cancelled" "$run_dir/status" "$run_dir/exit-code" "$run_dir/finished-at"
+printf 'starting\n' >"$run_dir/status"
 if command -v setsid >/dev/null 2>&1; then
   runner_shell=$(command -v bash 2>/dev/null || command -v sh)
-  nohup setsid "$runner_shell" "$run_dir/run.sh" "$run_dir" "$project" "$setup" "$gpus" "$command" "$plan_id" </dev/null >"$run_dir/run.log" 2>&1 &
+  nohup setsid "$runner_shell" "$run_dir/run.sh" "$run_dir" "$project" "$setup" "$gpus" "$command" "$plan_id" "$try_number" </dev/null >"$run_dir/run.log" 2>&1 &
 else
   runner_shell=$(command -v bash 2>/dev/null || command -v sh)
-  nohup "$runner_shell" "$run_dir/run.sh" "$run_dir" "$project" "$setup" "$gpus" "$command" "$plan_id" </dev/null >"$run_dir/run.log" 2>&1 &
+  nohup "$runner_shell" "$run_dir/run.sh" "$run_dir" "$project" "$setup" "$gpus" "$command" "$plan_id" "$try_number" </dev/null >"$run_dir/run.log" 2>&1 &
 fi
 pid=$!
 printf '%s\n' "$pid" >"$run_dir/pid"
@@ -267,6 +357,7 @@ printf '%s\n' "$pid"
                     compute.gpu_devices,
                     command_line,
                     package.id,
+                    str(try_number),
                 ),
                 timeout=20,
             )
@@ -326,6 +417,7 @@ setup=$3
 gpus=$4
 command=$5
 plan_id=$6
+try_number=$7
 case "$run_dir" in '~/'*) run_dir="$HOME/${run_dir#'~/'}" ;; esac
 case "$project" in '~/'*) project="$HOME/${project#'~/'}" ;; esac
 status_file="$run_dir/status"
@@ -349,7 +441,7 @@ cd "$project"
 export DELTA_LOOP_RUN_ID="$(basename "$run_dir")"
 export DELTA_LOOP_PLAN_ID="$plan_id"
 export DELTA_LOOP_HANDOFF="$run_dir/PLAN.md"
-export DELTA_LOOP_OUTPUT_DIR="$run_dir/output"
+export DELTA_LOOP_OUTPUT_DIR="$run_dir/output/try-$try_number"
 if [ -n "$gpus" ]; then export CUDA_VISIBLE_DEVICES="$gpus"; fi
 if [ -n "$setup" ]; then eval "$setup"; fi
 eval "$command"

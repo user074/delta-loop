@@ -551,6 +551,9 @@ function RunStory({ attempt, plan, review }: { attempt: Attempt; plan?: WorkPack
       </div>
       {plan?.goal && <p><strong>Tested:</strong> {plan.goal}</p>}
       {plan?.instructions && <p><strong>Starting method:</strong> {plan.instructions}</p>}
+      {attempt.execution_history.length > 0 && (
+        <p><strong>Implementation:</strong> {attempt.execution_history.length + 1} tries inside this one research run. Latest change: {attempt.current_try_reason}</p>
+      )}
       {review?.adaptations && <p><strong>How the method changed:</strong> {review.adaptations}</p>}
       {plan?.inputs && <p><strong>Data:</strong> {plan.inputs}</p>}
       {review && <p><strong>Execution:</strong> {titleCase(review.execution_validity)}</p>}

@@ -544,6 +544,7 @@ export default function ComputePage({
                   </div>
                   <strong>{plan?.title ?? "Research run"}</strong>
                   <p>{run.executor === "ssh" ? `${run.compute_name} · ${run.remote_host}` : "This computer"}</p>
+                  {run.execution_history.length > 0 && <p>{run.execution_history.length + 1} implementation tries · still one research run</p>}
                   <code>{(run.executor === "ssh" ? run.remote_output_directory : run.output_directory) || (run.status === "starting" || run.status === "running" ? "Preparing output folder…" : "No output folder was recorded")}</code>
                   {run.error && <em>{run.error}</em>}
                 </article>

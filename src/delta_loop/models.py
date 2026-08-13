@@ -200,6 +200,22 @@ class WorkPackage(BaseModel):
     ask_before: str = ""
 
 
+class ExecutionTry(BaseModel):
+    """One implementation-level launch inside a single scientific run."""
+
+    number: int
+    command: list[str]
+    reason: str = ""
+    status: AttemptStatus
+    started_at: str
+    finished_at: str | None = None
+    exit_code: int | None = None
+    output_tail: list[str] = Field(default_factory=list)
+    error: str | None = None
+    output_directory: str = ""
+    remote_output_directory: str = ""
+
+
 class Attempt(BaseModel):
     id: str
     package_id: str
@@ -221,6 +237,9 @@ class Attempt(BaseModel):
     remote_record_directory: str = ""
     remote_output_directory: str = ""
     last_checked_at: str = ""
+    current_try_reason: str = "Starting implementation"
+    current_try_started_at: str = Field(default_factory=now_iso)
+    execution_history: list[ExecutionTry] = Field(default_factory=list)
 
 
 class ResultReview(BaseModel):
@@ -597,6 +616,11 @@ class WorkPackagePatch(BaseModel):
     do_not_change: str | None = None
     command: str | None = None
     budget: str | None = None
+
+
+class RetryRunRequest(BaseModel):
+    command: str
+    reason: str
 
 
 class ResultReviewRequest(BaseModel):

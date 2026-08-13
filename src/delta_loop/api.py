@@ -48,6 +48,7 @@ from .models import (
     RemoteProjectInspection,
     RemoteProjectReadRequest,
     RemoteProjectReading,
+    RetryRunRequest,
     ResultReview,
     ResultReviewRequest,
     RulesDraftRequest,
@@ -810,6 +811,35 @@ def create_app(
         )
         if not approach:
             raise HTTPException(status_code=404, detail="Choose a way to test an idea first.")
+        existing_packages = [
+            package for package in workspace.packages if package.approach_id == approach.id
+        ]
+        if existing_packages:
+            package_ids = {package.id for package in existing_packages}
+            latest_attempt = next(
+                (
+                    attempt
+                    for attempt in reversed(workspace.attempts)
+                    if attempt.package_id in package_ids
+                ),
+                None,
+            )
+            is_reviewed = bool(
+                latest_attempt
+                and any(
+                    review.attempt_id == latest_attempt.id
+                    for review in workspace.reviews
+                )
+            )
+            if latest_attempt and not is_reviewed:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"This idea already has unresolved research run {latest_attempt.id}. "
+                        "Repair it with `delta work retry` instead of creating another run, "
+                        "or review it after it produces real evidence."
+                    ),
+                )
         profile = protocols[approach.protocol_id or workspace.protocol_id]
         stage_id = request.stage or approach.current_stage or profile.stages[0].id
         stage = next((item for item in profile.stages if item.id == stage_id), profile.stages[0])
@@ -879,6 +909,16 @@ def create_app(
             runner.cancel(workspace_id, attempt_id)
         except RunFailure as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return workspace_or_404(workspace_id)
+
+    @app.post("/api/workspaces/{workspace_id}/runs/{attempt_id}/retry", response_model=ProjectSnapshot)
+    def retry_run(
+        workspace_id: str, attempt_id: str, request: RetryRunRequest
+    ) -> ProjectSnapshot:
+        try:
+            runner.retry(workspace_id, attempt_id, request.command, request.reason)
+        except RunFailure as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return workspace_or_404(workspace_id)
 
     @app.post("/api/workspaces/{workspace_id}/runs/{attempt_id}/review", response_model=ProjectSnapshot)

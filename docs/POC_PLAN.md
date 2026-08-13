@@ -62,6 +62,7 @@ This table is the product requirements document for the POC. A proposed feature 
 | Lab-note capture | Research ideas are usually added by editing state or telling the agent. | A new direction may begin as one sentence in a lab note. Requiring a full hypothesis or package too early creates friction and loses speculative ideas. | Add one-line quick capture for a direction, approach, observation, or question. It appears immediately in the map as an unstructured note and may be enriched later without a model call. |
 | Promise versus evidence | Confidence and frontier rank partially mix scientific support with what deserves attention next. | A weakly supported direction may still be promising; a well-supported result may have low priority. | Display three separate signals: activity status, human-rated promise/priority, and evidence strength. Never infer one from another. |
 | Review semantics | A report proposes a verdict and belief update. | Method validity, observed result, scientific interpretation, and code quality are different judgments. A changed method is not evidence against an idea. | Separate execution validity, implementation adaptations, evidence outcome, interpretation, belief update, and optional code integration. Only trustworthy evidence can support or challenge an idea; broken execution is invalid or blocked. |
+| Research-run counting | Each command launch can become another attempt or package. | Agents can appear busy by making a minor edit, starting another run, failing again, and growing the ledger without ever testing the idea. This is fake progress and makes the research map less useful. | Define one research run as one attempt to answer one scientific question. Command launches, debugging, setup repair, and implementation retries are nested execution tries under the same run ID. Reject another unresolved run for the same work. A new run requires a reviewed result or a material change to the idea, comparison, or measurement. |
 | Terminal workflow | The existing system works directly in the repository through agent tools and shell commands. | The terminal remains best for debugging, code inspection, commands, SLURM, and interactive collaboration, but it is visually disconnected from the research arc. | Make terminal sessions first-class and link them to directions, approaches, packages, and attempts. Clicking a node opens or reattaches its session; the same session can be attached from the browser or a local/VS Code terminal. |
 | Codex file and Git access | A managed Codex chat can be started without command-by-command approval while still using a project-only filesystem sandbox. | The project-only sandbox cannot write protected Git metadata or reach every SSH, environment, and remote-project path needed for real research work. Codex can discuss Git policy but cannot carry out an approved commit. | Start managed Codex chats with full machine access so they can work in the actual local or remote repository. Keep this technical access separate from behavioral permission: enabled Git policy decides when Codex may stage, commit, or push, and push remains a separate choice. Allow deployments to replace the launch command when a stricter external boundary is required. |
 | Compute location | Research code may live on a workstation or a remote GPU server. `delta-research` records infrastructure and follows a probe-then-interview setup: commands reveal hardware and software facts, while the researcher supplies storage policy, appropriate resources, and cluster or lab conventions. | On a server without SLURM, the researcher wants Delta Loop to remain local while approved commands run remotely. The agent must not guess the host, project path, environment, GPUs, storage policy, or safe concurrency, and the researcher should not have to manually transcribe everything into a form. | Make agent-led setup the main path. Run one bounded read-only probe; show detected facts separately from human choices; ask one short round at a time about the environment, storage, GPU and concurrency limits, login-node restrictions, Git, data, and lab rules; save only after confirmation; then validate the exact setup. Freeze the chosen location into every attempt, launch a persistent remote process, reconnect to status and logs, and show the remote output path. Keep manual fields as an advanced fallback and never store SSH credentials. Provide a safe reset that clears the saved location and inspection while preserving research files, run history, and results. |
@@ -557,6 +558,7 @@ Opening a package shows:
 - Tool/process events with full logs expandable
 - Produced code, metrics, plots, reports, and other artifacts
 - Final method, adaptations, and repairs
+- Nested implementation tries, collapsed by default and explicitly labeled as one research run
 - Worker questions and escalation context
 - Verification results
 - Review decisions and follow-up packages
@@ -808,8 +810,10 @@ The persistent, versioned handoff contract. Only a sealed package may be delegat
 
 ### Attempt
 
-One execution of one sealed package version. It records the worker, code revision or worktree, run directory,
-budgets, timestamps, token usage, compute use, events, repairs, exit condition, and retry relationship.
+One research run: one attempt to answer the scientific question in a saved test brief. It records the worker, code
+revision or worktree, run directory, budgets, timestamps, token usage, compute use, final evidence status, and a
+nested history of implementation tries. A changed command, path fix, dependency repair, debugging pass, or minor
+code edit updates this same Attempt; it does not create another Attempt or count as another piece of research.
 
 ### TerminalSession
 
@@ -1180,11 +1184,9 @@ The UI reports tokens, elapsed time, and outcomes by class and package.
 
 The following count as progress:
 
-- A sealed research package that resolves material ambiguity and is accepted by the researcher
-- Code, data, plots, metrics, or a report produced for a real research objective
-- An experiment launched or completed with registered provenance
-- A trustworthy positive, negative, partial, or null observation
-- A blocker resolved
+- Code, data, plots, metrics, or a report that materially advances a real research objective
+- A completed test with a trustworthy positive, negative, partial, or null observation
+- A blocker resolved when that resolution enables or completes the real scientific test
 - A claim, approach, or allocation changed because of accepted evidence
 
 The following do not count as research progress by themselves:
@@ -1193,6 +1195,9 @@ The following do not count as research progress by themselves:
 - Heartbeats
 - Re-reading unchanged project context
 - Rehearsing the orchestration loop
+- Launching a command or creating a run record
+- Retrying a command, fixing a path, changing a batch size, repairing setup, or making another minor implementation edit
+- Creating another package or run before the current scientific test produces evidence or reaches a genuine hard boundary
 - Repairing a schema that deterministic validation could have caught
 - Running broad harness tests unrelated to the current change
 - Creating more frontier items without new evidence or human direction
@@ -1567,6 +1572,11 @@ The POC is successful only if all of the following are true:
     the primary metric differs in the predicted direction.
 35. After review, the researcher can explicitly promote, repeat, revise, redirect, or stop. Delta records the
     rationale and never launches a higher-cost stage merely because a result crossed a metric threshold.
+36. A broken command can be repaired repeatedly under one research-run ID, with each implementation try auditable
+    but only one run shown in research counts; try-specific output folders prevent stale artifacts from appearing
+    to belong to a repaired execution.
+37. Delta rejects a second unresolved run for the same work and directs the agent to repair the existing run; a
+    new run requires reviewed evidence or a material change to the scientific test.
 
 ## 18. Metrics
 
@@ -1574,7 +1584,9 @@ The POC is successful only if all of the following are true:
 
 - Human minutes from fuzzy idea to sealed package
 - Rework caused by misunderstood intent
-- Fraction of attempts producing accepted observations or useful engineering artifacts
+- Fraction of research runs producing accepted observations or useful engineering artifacts
+- Implementation tries per completed scientific test, shown as overhead rather than progress
+- Unresolved duplicate runs for the same scientific test; the target is zero
 - Time to reconstruct the research direction after an absence
 - Number of approach switches with recorded rationale and revisit condition
 - Time from one-line note to a navigable direction or approach
@@ -1594,9 +1606,10 @@ The POC is successful only if all of the following are true:
 
 ### Delegation quality
 
-- Material deviations from sealed packages
+- Material changes to protected scientific intent
+- Implementation adaptations correctly kept inside the original research run
 - Decisions correctly escalated versus silently made
-- Packages revised, retried, rejected, or abandoned
+- Research runs revised, rejected, or abandoned after internal implementation retries
 - Parallel packages completed without state or artifact conflict
 - Time waiting for human input versus continuing independent work
 

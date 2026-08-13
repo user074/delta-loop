@@ -159,6 +159,21 @@ export interface Attempt {
   remote_record_directory: string;
   remote_output_directory: string;
   last_checked_at: string;
+  current_try_reason: string;
+  current_try_started_at: string;
+  execution_history: Array<{
+    number: number;
+    command: string[];
+    reason: string;
+    status: Attempt["status"];
+    started_at: string;
+    finished_at: string | null;
+    exit_code: number | null;
+    output_tail: string[];
+    error: string | null;
+    output_directory: string;
+    remote_output_directory: string;
+  }>;
 }
 
 export interface ComputeConfig {

@@ -93,6 +93,7 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Set shared checks, temporary limits, and special rules for particular ideas
 - Start a focused agent chat from configuration that needs discussion; simple choices stay directly editable
 - Run a local test and keep its scientific intent, starting method, adaptations, output, and review together
+- Keep command fixes, setup repairs, and minor implementation edits inside the same research run instead of inflating the run count
 - Choose whether research commands run locally or on one remote server through the user's existing SSH setup
 - Reuse a previously checked computer or SSH server when opening another project, without copying project-specific paths or Git permissions
 - Check the remote project, Python, Git, and GPUs without starting research work
@@ -237,8 +238,21 @@ closed. Large artifacts remain in the remote output folder shown on the Compute 
 back automatically.
 
 Changing the method is not a failed experiment. Delta Loop records the final method and adaptations separately.
-A command error or unusable run is an **execution issue**; it does not count as evidence against the idea. Only a
-valid or partly valid result can be reviewed as supporting or challenging an idea:
+A shell command is also not a research run. If the first implementation does not work, repair it under the same
+run ID. The earlier try remains available for audit, but the Research and Home pages still count one scientific
+run. Each try receives its own output subfolder, so a stale file from a broken implementation cannot be mistaken
+for the repaired result:
+
+```bash
+delta work retry RUN_ID \
+  --command "python corrected_experiment.py" \
+  --reason "Fixed the loader path; the idea, comparison, and measurement are unchanged."
+```
+
+Use `delta work start` again only after the current run has produced a reviewed result, or when the idea,
+comparison, or measurement genuinely changes. Delta Loop rejects a second unresolved run for the same work.
+A command error or unusable intermediate try is an **execution issue**; it does not count as evidence against the
+idea or as completed progress. Only a valid or partly valid result can be reviewed as supporting or challenging an idea:
 
 ```bash
 delta work review RUN_ID \
