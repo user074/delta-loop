@@ -14,6 +14,8 @@ const nodeKindLabels: Record<ResearchNode["kind"], string> = {
   finding: "finding",
 };
 
+const keepDeltaHostOwned = "Delta Loop already hosts this terminal. Never start, restart, install, upgrade, or replace the Delta Loop server, and never run `delta serve` or the `delta-loop` launcher. If `delta context` cannot connect, report the connection problem instead of starting a server.";
+
 function researchStartPrompt(
   workspace: Workspace,
   request: ResearchLaunchRequest,
@@ -31,6 +33,7 @@ function researchStartPrompt(
     `Main research question: ${oneLine(workspace.goal)}`,
     oneLine(focusInstruction),
     "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md. Use `delta work start` once for a scientific test. Repair commands or implementation with `delta work retry` under that same run ID until it produces usable evidence or reaches a hard boundary. Then review the result, update the research memory and map, and immediately begin the next useful cycle.",
+    keepDeltaHostOwned,
     "Do not ask for approval of plans, scientific choices, routine implementation or debugging, result interpretation, map updates, replication, or promotion to a larger study. Make the best policy-compliant choice and record the reason.",
     "When uncertain, run the smallest safe test that can distinguish the options. Do not inflate progress with new runs for minor edits, setup mistakes, or command repairs; these are implementation tries inside the same research run. Only a real scientific result or an exhausted hard boundary ends a run.",
     "Stop only for the saved success or stop condition, an exhausted compute or budget limit, a necessary action prohibited by policy, missing access that cannot be worked around, or when no safe useful work remains across the active map. The researcher may be away; absence is not a reason to pause.",
@@ -49,6 +52,7 @@ function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) 
           : "No research item is selected for this chat.";
   return [
     "This is a separate Delta Loop chat. Run `delta context` first.",
+    keepDeltaHostOwned,
     focusText,
     "Ask what the researcher wants to do. Do not start research work unless they request it here.",
   ].join("\n\n");
