@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Box, ChevronDown, ChevronUp, MessageCircle, Plus, Power, SquareTerminal, X } from "lucide-react";
+import { Box, ChevronDown, ChevronUp, Maximize2, MessageCircle, Minimize2, Plus, Power, SquareTerminal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from "./api";
 import type { DiscussionRequest } from "./discussions";
@@ -58,13 +58,11 @@ function TerminalView({
   onConnectionChange: (sessionId: string, state: TerminalConnectionState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const [readingEarlier, setReadingEarlier] = useState(false);
+  const readingEarlier = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    setReadingEarlier(false);
+    readingEarlier.current = false;
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: false,
@@ -72,7 +70,7 @@ function TerminalView({
       fontSize: 13,
       lineHeight: 1.3,
       scrollback: 50000,
-      scrollOnUserInput: false,
+      scrollOnUserInput: true,
       smoothScrollDuration: 80,
       theme: {
         background: "#24241f",
@@ -86,7 +84,6 @@ function TerminalView({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(containerRef.current);
-    terminalRef.current = terminal;
     fit.fit();
 
     const socketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -107,7 +104,6 @@ function TerminalView({
       socket = new WebSocket(
         `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws?columns=${terminal.cols}&rows=${terminal.rows}`,
       );
-      socketRef.current = socket;
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
         if (retries) {
@@ -161,6 +157,11 @@ function TerminalView({
     connect();
     const input = terminal.onData((data) => {
       if (readyForInput && socket?.readyState === WebSocket.OPEN) {
+        if (readingEarlier.current) {
+          if (session.persistent) socket.send(JSON.stringify({ type: "latest" }));
+          else terminal.scrollToBottom();
+          readingEarlier.current = false;
+        }
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
@@ -171,7 +172,7 @@ function TerminalView({
     });
     const scroll = terminal.onScroll(() => {
       if (!session.persistent) {
-        setReadingEarlier(terminal.buffer.active.viewportY < terminal.buffer.active.baseY);
+        readingEarlier.current = terminal.buffer.active.viewportY < terminal.buffer.active.baseY;
       }
     });
     let wheelRemainder = 0;
@@ -194,7 +195,7 @@ function TerminalView({
         if (wholeLines) {
           sendPersistentScroll(wholeLines);
           wheelRemainder -= wholeLines;
-          if (wholeLines < 0) setReadingEarlier(true);
+          if (wholeLines < 0) readingEarlier.current = true;
         }
         return;
       }
@@ -222,9 +223,9 @@ function TerminalView({
         else if (event.key === "PageDown") sendPersistentScroll(terminal.rows);
         else if (event.key === "End") {
           socket?.send(JSON.stringify({ type: "latest" }));
-          setReadingEarlier(false);
+          readingEarlier.current = false;
         } else return true;
-        if (event.key !== "End") setReadingEarlier(true);
+        if (event.key !== "End") readingEarlier.current = true;
       } else if (event.key === "ArrowUp") terminal.scrollLines(-3);
       else if (event.key === "ArrowDown") terminal.scrollLines(3);
       else if (event.key === "PageUp") terminal.scrollPages(-1);
@@ -250,31 +251,11 @@ function TerminalView({
         socket.onmessage = null;
         socket.close(1000);
       }
-      if (socketRef.current === socket) socketRef.current = null;
-      terminalRef.current = null;
       terminal.dispose();
     };
   }, [onConnectionChange, onEnded, session.id, session.persistent]);
 
-  return (
-    <div className="terminal-screen-wrap">
-      <div className="terminal-screen" ref={containerRef} />
-      {readingEarlier && (
-        <button
-          className="terminal-jump-latest"
-          onClick={() => {
-            terminalRef.current?.scrollToBottom();
-            setReadingEarlier(false);
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-              socketRef.current.send(JSON.stringify({ type: "latest" }));
-            }
-          }}
-        >
-          Latest message
-        </button>
-      )}
-    </div>
-  );
+  return <div className="terminal-screen-wrap"><div className="terminal-screen" ref={containerRef} /></div>;
 }
 
 export default function TerminalDock({
@@ -301,6 +282,7 @@ export default function TerminalDock({
   const [sessions, setSessions] = useState<TerminalSessionInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [busy, setBusy] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [confirmStopAll, setConfirmStopAll] = useState(false);
@@ -333,6 +315,22 @@ export default function TerminalDock({
   useEffect(() => {
     onExpandedChange(expanded);
   }, [expanded, onExpandedChange]);
+
+  useEffect(() => {
+    if (!expanded) setMaximized(false);
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!maximized) return;
+    const restoreOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMaximized(false);
+    };
+    window.addEventListener("keydown", restoreOnEscape, true);
+    return () => window.removeEventListener("keydown", restoreOnEscape, true);
+  }, [maximized]);
 
   const refreshSessions = useCallback(() => {
     return listTerminals(workspace.id)
@@ -491,7 +489,7 @@ export default function TerminalDock({
   }, []);
 
   return (
-    <section className={`terminal-dock ${expanded ? "expanded" : ""} ${runningSessions.length ? "has-sessions" : ""}`}>
+    <section className={`terminal-dock ${expanded ? "expanded" : ""} ${maximized ? "maximized" : ""} ${runningSessions.length ? "has-sessions" : ""}`}>
       <div className="terminal-bar">
         <div className="terminal-heading">
           <SquareTerminal size={15} />
@@ -523,6 +521,15 @@ export default function TerminalDock({
               <span className={`terminal-state ${expanded ? connectionState : "connected"}`}>
                 <span /> {expanded ? connectionState : "running"}
               </span>
+              {expanded && (
+                <button
+                  onClick={() => setMaximized((value) => !value)}
+                  title={maximized ? "Return the terminal to the bottom of the page" : "Use the whole window for the terminal"}
+                >
+                  {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  {maximized ? "Restore" : "Full screen"}
+                </button>
+              )}
               <button onClick={() => setExpanded((value) => !value)}>
                 {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 {expanded ? "Hide" : "Show"}

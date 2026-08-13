@@ -187,6 +187,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .terminal-dock { position: fixed; z-index: 12; left: 84px; right: 0; bottom: 0; height: 104px; background: #24241f; color: #d7d3c9; border-top: 1px solid #0d0d0b; transition: height 180ms ease; }
 .terminal-dock.expanded { height: 340px; }
+.terminal-dock.maximized { z-index: 30; inset: 0; height: 100dvh; border-top: 0; transition: none; }
 .terminal-bar { height: 35px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; background: #2c2c26; border-bottom: 1px solid #3d3d35; font: 10px "SFMono-Regular", Consolas, monospace; }
 .terminal-bar > div { display: flex; align-items: center; gap: 7px; }
 .terminal-heading { min-width: 0; }.terminal-heading strong { color: #ece9df; }.terminal-active-title { max-width: min(420px, 38vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #a8a59c; }
@@ -217,18 +218,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .terminal-preview button { margin-left: auto; display: flex; align-items: center; gap: 5px; border: 1px solid #48483f; border-radius: 5px; background: #303029; color: #aaa79f; padding: 6px 9px; font: 9px "SFMono-Regular", Consolas, monospace; }
 .terminal-view-stack { position: absolute; inset: 72px 0 0; height: 268px; visibility: hidden; pointer-events: none; }
 .terminal-view-stack.expanded { visibility: visible; }
+.terminal-dock.maximized .terminal-view-stack { height: auto; }
 .terminal-view-pane { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .terminal-view-pane.active { visibility: visible; pointer-events: auto; }
 .terminal-screen-wrap { position: relative; height: 305px; }
 .terminal-dock.has-sessions .terminal-screen-wrap { height: 268px; }
+.terminal-dock.maximized .terminal-screen-wrap { height: 100%; }
 .terminal-screen { height: 100%; padding: 8px 10px 6px; overflow: hidden; overscroll-behavior: contain; }
 .terminal-screen .xterm { height: 100%; }
 .terminal-screen .xterm-viewport { scrollbar-width: thin; scrollbar-color: #68685d #24241f; }
 .terminal-screen .xterm-viewport::-webkit-scrollbar { width: 10px; }
 .terminal-screen .xterm-viewport::-webkit-scrollbar-track { background: #24241f; }
 .terminal-screen .xterm-viewport::-webkit-scrollbar-thumb { border: 2px solid #24241f; border-radius: 8px; background: #68685d; }
-.terminal-jump-latest { position: absolute; z-index: 3; right: 24px; bottom: 14px; padding: 6px 9px; border: 1px solid #66665a; border-radius: 5px; background: #3a3a32e8; color: #e8e4d9; box-shadow: 0 4px 14px #1118; cursor: pointer; font: 9px "SFMono-Regular", Consolas, monospace; }
-.terminal-jump-latest:hover { border-color: var(--acid); color: var(--acid); }
 .terminal-loading { position: fixed; left: 84px; right: 0; bottom: 0; z-index: 11; height: 35px; padding: 10px 18px; background: #2c2c26; color: #99968e; font: 9px "SFMono-Regular", Consolas, monospace; }
 
 .rules-backdrop { position: fixed; z-index: 45; inset: 0; background: #1d1d1966; backdrop-filter: blur(3px); }
