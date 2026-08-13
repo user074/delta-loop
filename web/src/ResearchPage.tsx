@@ -1,12 +1,13 @@
-import { Activity, ArrowRight, CheckCircle2, CircleDot, Clock3, FileText, FlaskConical, GitBranch, Link2, MessageSquareText, Pencil, Plus, Route, ShieldCheck, Target, XCircle } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
-import { addExperimentFromIdeaDiscussion, addIdeaFromQuestionDiscussion, addResearchQuestionDiscussion, connectResearchNodeDiscussion, researchMapDiscussion, reviseResearchNodeDiscussion, type DiscussionRequest } from "./discussions";
-import type { Attempt, ResearchNode, Workspace, WorkPackage } from "./types";
+import { Activity, ArrowRight, BookOpen, CheckCircle2, CircleDot, Clock3, FileText, FlaskConical, GitBranch, Lightbulb, Link2, MessageSquareText, Minus, Pencil, Plus, Route, SearchCheck, ShieldCheck, Sparkles, Target, XCircle } from "lucide-react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { addExperimentFromIdeaDiscussion, addFindingDiscussion, addFollowUpIdeaDiscussion, addIdeaFromQuestionDiscussion, addLiteratureReviewDiscussion, addResearchQuestionDiscussion, connectResearchNodeDiscussion, continueResearchFromNodeDiscussion, researchMapDiscussion, reviseResearchNodeDiscussion, type DiscussionRequest } from "./discussions";
+import type { Attempt, ResearchLink, ResearchNode, Workspace, WorkPackage } from "./types";
 
 const nodeKindLabels: Record<ResearchNode["kind"], string> = {
   question: "Question",
   direction: "Idea",
-  approach: "Experiment",
+  approach: "Work",
+  finding: "Finding",
 };
 
 const statusLabels: Record<ResearchNode["status"], string> = {
@@ -37,6 +38,10 @@ const nextStepLabels: Record<string, string> = {
 const relationshipLabels: Record<Workspace["research_links"][number]["relationship"], string> = {
   explores: "explores",
   tests: "tests",
+  produces: "produces",
+  revises: "revises",
+  "leads-to": "leads to",
+  "alternative-to": "alternative to",
   supports: "supports",
   challenges: "challenges",
   informs: "informs",
@@ -46,6 +51,31 @@ const relationshipLabels: Record<Workspace["research_links"][number]["relationsh
 
 function titleCase(value: string) {
   return value.replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function countLabel(count: number, singular: string) {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+type MapLevel = 0 | 1 | 2;
+
+const mapLevelLabels: Record<MapLevel, string> = {
+  0: "Overview",
+  1: "Working view",
+  2: "Details",
+};
+
+function nodeTypeLabel(node: ResearchNode) {
+  if (node.kind !== "approach") return nodeKindLabels[node.kind];
+  return workKindLabels[node.next_work_kind] ?? "Research work";
+}
+
+function NodeTypeIcon({ node, size = 13 }: { node: ResearchNode; size?: number }) {
+  if (node.kind === "question") return <Target size={size} />;
+  if (node.kind === "direction") return <Lightbulb size={size} />;
+  if (node.kind === "finding") return <Sparkles size={size} />;
+  if (node.next_work_kind === "literature-review") return <BookOpen size={size} />;
+  return <FlaskConical size={size} />;
 }
 
 export default function ResearchPage({
@@ -62,14 +92,22 @@ export default function ResearchPage({
   onDiscuss: (request: Omit<DiscussionRequest, "id">) => void;
 }) {
   const selected = workspace.nodes.find((node) => node.id === selectedId) ?? null;
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const toggleBranch = (nodeId: string) => setCollapsedIds((current) => {
+    const next = new Set(current);
+    if (next.has(nodeId)) next.delete(nodeId);
+    else next.add(nodeId);
+    return next;
+  });
   return (
     <section className="workspace-grid">
       <ResearchMap
         workspace={workspace}
         selectedId={selectedId}
         onSelect={onSelect}
-        onDiscuss={() => onDiscuss(researchMapDiscussion(workspace, selected))}
-        onAddQuestion={() => onDiscuss(addResearchQuestionDiscussion(workspace))}
+        onDiscuss={() => onDiscuss(researchMapDiscussion(selected))}
+        onAddQuestion={() => onDiscuss(addResearchQuestionDiscussion())}
+        collapsedIds={collapsedIds}
       />
       <ResearchDetail
         node={selected}
@@ -77,25 +115,142 @@ export default function ResearchPage({
         onOpenPolicy={onOpenPolicy}
         onSelect={onSelect}
         onDiscuss={onDiscuss}
+        collapsed={selected ? collapsedIds.has(selected.id) : false}
+        hasLaterSteps={selected ? workspace.nodes.some((node) => node.parent_id === selected.id) : false}
+        onToggleBranch={toggleBranch}
       />
     </section>
   );
 }
 
-function ResearchMap({ workspace, selectedId, onSelect, onDiscuss, onAddQuestion }: { workspace: Workspace; selectedId: string | null; onSelect: (id: string) => void; onDiscuss: () => void; onAddQuestion: () => void }) {
+function ResearchMap({ workspace, selectedId, onSelect, onDiscuss, onAddQuestion, collapsedIds }: { workspace: Workspace; selectedId: string | null; onSelect: (id: string) => void; onDiscuss: () => void; onAddQuestion: () => void; collapsedIds: Set<string> }) {
   const questions = workspace.nodes.filter((node) => node.kind === "question");
   const directions = workspace.nodes.filter((node) => node.kind === "direction");
   const approaches = workspace.nodes.filter((node) => node.kind === "approach");
+  const findings = workspace.nodes.filter((node) => node.kind === "finding");
+  const [mapLevel, setMapLevel] = useState<MapLevel>(1);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const cardRefs = useRef(new Map<string, HTMLButtonElement>());
-  const [lines, setLines] = useState<Array<{ id: string; path: string; x: number; y: number; label: string; relationship: string; connected: boolean }>>([]);
+  const cardRefs = useRef(new Map<string, HTMLElement>());
+  const [lines, setLines] = useState<Array<{ id: string; path: string; x: number; y: number; label: string; relationship: string; primary: boolean; connected: boolean }>>([]);
+  const nodesById = useMemo(() => new Map(workspace.nodes.map((node) => [node.id, node])), [workspace.nodes]);
+
+  const visibleNodes = useMemo(() => {
+    const allowedByLevel = workspace.nodes.filter((node) => mapLevel > 0 || node.kind === "question" || node.kind === "direction");
+    return allowedByLevel.filter((node) => {
+      let parent = nodesById.get(node.parent_id ?? "");
+      const seen = new Set<string>();
+      while (parent && !seen.has(parent.id)) {
+        if (collapsedIds.has(parent.id)) return false;
+        seen.add(parent.id);
+        parent = nodesById.get(parent.parent_id ?? "");
+      }
+      return true;
+    });
+  }, [collapsedIds, mapLevel, nodesById, workspace.nodes]);
+
+  const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+  const displayParents = useMemo(() => {
+    const parents = new Map<string, { parent: ResearchNode; hiddenSteps: number }>();
+    for (const node of visibleNodes) {
+      let parent = nodesById.get(node.parent_id ?? "");
+      let hiddenSteps = 0;
+      const seen = new Set<string>();
+      while (parent && !seen.has(parent.id)) {
+        seen.add(parent.id);
+        if (visibleIds.has(parent.id)) {
+          parents.set(node.id, { parent, hiddenSteps });
+          break;
+        }
+        hiddenSteps += 1;
+        parent = nodesById.get(parent.parent_id ?? "");
+      }
+    }
+    return parents;
+  }, [nodesById, visibleIds, visibleNodes]);
+
+  const columns = useMemo(() => {
+    const depthCache = new Map<string, number>();
+    const depthFor = (nodeId: string, visiting = new Set<string>()): number => {
+      const cached = depthCache.get(nodeId);
+      if (cached !== undefined) return cached;
+      if (visiting.has(nodeId)) return 0;
+      visiting.add(nodeId);
+      const parent = displayParents.get(nodeId)?.parent;
+      const depth = parent ? Math.min(8, depthFor(parent.id, visiting) + 1) : 0;
+      depthCache.set(nodeId, depth);
+      return depth;
+    };
+    const grouped = new Map<number, ResearchNode[]>();
+    for (const node of visibleNodes) {
+      const depth = depthFor(node.id);
+      grouped.set(depth, [...(grouped.get(depth) ?? []), node]);
+    }
+    return [...grouped.entries()].sort(([a], [b]) => a - b).map(([depth, nodes]) => ({ depth, nodes }));
+  }, [displayParents, visibleNodes]);
+
+  const displayEdges = useMemo(() => {
+    const primaryLinks = new Set<string>();
+    const edges: Array<{ id: string; source_id: string; target_id: string; relationship: ResearchLink["relationship"]; label: string; primary: boolean }> = [];
+    for (const node of visibleNodes) {
+      const placement = displayParents.get(node.id);
+      if (!placement) continue;
+      const actual = workspace.research_links.find((link) => link.source_id === placement.parent.id && link.target_id === node.id);
+      if (actual) primaryLinks.add(actual.id);
+      edges.push({
+        id: actual?.id ?? `path-${placement.parent.id}-${node.id}`,
+        source_id: placement.parent.id,
+        target_id: node.id,
+        relationship: actual?.relationship ?? "leads-to",
+        label: placement.hiddenSteps ? `${placement.hiddenSteps} hidden step${placement.hiddenSteps === 1 ? "" : "s"}` : relationshipLabels[actual?.relationship ?? "leads-to"],
+        primary: true,
+      });
+    }
+    for (const link of workspace.research_links) {
+      if (!visibleIds.has(link.source_id) || !visibleIds.has(link.target_id) || primaryLinks.has(link.id)) continue;
+      edges.push({ ...link, label: relationshipLabels[link.relationship], primary: false });
+    }
+    return edges;
+  }, [displayParents, visibleIds, visibleNodes, workspace.research_links]);
+
+  const focusedIds = useMemo(() => {
+    if (!selectedId) return new Set(visibleIds);
+    let visibleFocusId: string | null = selectedId;
+    const seen = new Set<string>();
+    while (visibleFocusId && !visibleIds.has(visibleFocusId) && !seen.has(visibleFocusId)) {
+      seen.add(visibleFocusId);
+      visibleFocusId = nodesById.get(visibleFocusId)?.parent_id ?? null;
+    }
+    if (!visibleFocusId) return new Set(visibleIds);
+    const focused = new Set<string>([visibleFocusId]);
+    let parent = displayParents.get(visibleFocusId)?.parent;
+    while (parent && !focused.has(parent.id)) {
+      focused.add(parent.id);
+      parent = displayParents.get(parent.id)?.parent;
+    }
+    let frontier = new Set<string>([visibleFocusId]);
+    while (frontier.size) {
+      const next = new Set<string>();
+      for (const [childId, placement] of displayParents) {
+        if (frontier.has(placement.parent.id) && !focused.has(childId)) {
+          focused.add(childId);
+          next.add(childId);
+        }
+      }
+      frontier = next;
+    }
+    for (const link of workspace.research_links) {
+      if (link.source_id === visibleFocusId && visibleIds.has(link.target_id)) focused.add(link.target_id);
+      if (link.target_id === visibleFocusId && visibleIds.has(link.source_id)) focused.add(link.source_id);
+    }
+    return focused;
+  }, [displayParents, nodesById, selectedId, visibleIds, workspace.research_links]);
 
   useLayoutEffect(() => {
     const measure = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const bounds = canvas.getBoundingClientRect();
-      setLines(workspace.research_links.flatMap((link) => {
+      setLines(displayEdges.flatMap((link) => {
         const source = cardRefs.current.get(link.source_id);
         const target = cardRefs.current.get(link.target_id);
         if (!source || !target) return [];
@@ -118,9 +273,10 @@ function ResearchMap({ workspace, selectedId, onSelect, onDiscuss, onAddQuestion
           path,
           x: (x1 + x2) / 2,
           y: (y1 + y2) / 2,
-          label: relationshipLabels[link.relationship],
+          label: link.label,
+          primary: link.primary,
           relationship: link.relationship,
-          connected: !selectedId || link.source_id === selectedId || link.target_id === selectedId,
+          connected: focusedIds.has(link.source_id) && focusedIds.has(link.target_id),
         }];
       }));
     };
@@ -132,59 +288,66 @@ function ResearchMap({ workspace, selectedId, onSelect, onDiscuss, onAddQuestion
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [selectedId, workspace.nodes, workspace.research_links]);
+  }, [displayEdges, focusedIds, mapLevel, visibleNodes]);
 
   const setCardRef = (id: string) => (element: HTMLButtonElement | null) => {
     if (element) cardRefs.current.set(id, element);
     else cardRefs.current.delete(id);
   };
-  const columns = [
-    { kind: "question", label: "Questions", empty: "No research question yet", nodes: questions },
-    { kind: "direction", label: "Ideas", empty: "No research ideas yet", nodes: directions },
-    { kind: "approach", label: "Experiments", empty: "No experiments yet", nodes: approaches },
-  ];
   return (
     <div className="research-panel">
       <div className="panel-header">
-        <div><div className="section-kicker"><Route size={14} /> Research</div><h2>Questions, ideas, and experiments</h2></div>
+        <div><div className="section-kicker"><Route size={14} /> Research</div><h2>How the research developed</h2></div>
         <div className="research-header-actions">
-          <span className="map-count">{questions.length} {questions.length === 1 ? "question" : "questions"} · {directions.length} {directions.length === 1 ? "idea" : "ideas"} · {approaches.length} {approaches.length === 1 ? "experiment" : "experiments"}</span>
+          <span className="map-count">{countLabel(questions.length, "question")} · {countLabel(directions.length, "idea")} · {approaches.length} work · {countLabel(findings.length, "finding")}</span>
           <button className="map-add-button" onClick={onAddQuestion}><Plus size={14} /> Add question</button>
           <button className="discuss-button" onClick={onDiscuss}><MessageSquareText size={14} /> Chat about map</button>
         </div>
       </div>
-      <div className="research-map" ref={canvasRef}>
-        <div className="graph-legend"><span><i className="graph-line hierarchy" /> Main path</span><span><i className="graph-line evidence" /> Other relationship</span><small>Select an item to highlight its connections.</small></div>
-        <svg className="research-links" aria-label="Research relationships">
-          <defs><marker id="graph-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" /></marker></defs>
-          {lines.map((line) => {
-            const labelWidth = Math.max(38, line.label.length * 5.5 + 12);
-            return <g key={line.id} className={`research-link ${line.relationship} ${line.connected ? "connected" : "muted"}`}>
-              <path d={line.path} markerEnd="url(#graph-arrow)" />
-              <rect x={line.x - labelWidth / 2} y={line.y - 8} width={labelWidth} height={16} rx={8} />
-              <text x={line.x} y={line.y + 3}>{line.label}</text>
-            </g>;
-          })}
-        </svg>
-        <div className="research-columns">
-          {columns.map((column) => (
-            <section className={`research-column ${column.kind}`} key={column.kind}>
-              <div className="research-column-title"><span>{column.label}</span><small>{column.nodes.length}</small></div>
-              <div className="research-column-cards">
-                {column.nodes.map((node) => (
-                  <ResearchNodeCard
-                    key={node.id}
-                    node={node}
-                    workspace={workspace}
-                    selected={selectedId === node.id}
-                    onSelect={onSelect}
-                    cardRef={setCardRef(node.id)}
-                  />
-                ))}
-                {!column.nodes.length && <div className="empty-branch">{column.empty}</div>}
-              </div>
-            </section>
-          ))}
+      <div className="research-map">
+        <div className="map-view-controls">
+          <div className="map-zoom" aria-label="Map detail level">
+            <button aria-label="Zoom out" title="Show less detail" disabled={mapLevel === 0} onClick={() => setMapLevel((level) => Math.max(0, level - 1) as MapLevel)}><Minus size={13} /></button>
+            <span>{mapLevelLabels[mapLevel]}</span>
+            <button aria-label="Zoom in" title="Show more detail" disabled={mapLevel === 2} onClick={() => setMapLevel((level) => Math.min(2, level + 1) as MapLevel)}><Plus size={13} /></button>
+          </div>
+          <small>{selectedId && !visibleIds.has(selectedId) ? "The selected item is hidden here. Zoom in to see it." : mapLevel === 0 ? "Questions and ideas only" : mapLevel === 1 ? "Questions, ideas, work, and findings" : "Full summaries, evidence, and run state"}</small>
+        </div>
+        <div className="graph-legend"><span><i className="graph-line hierarchy" /> Main path</span><span><i className="graph-line evidence" /> Other relationship</span><small>Select an item to follow its path. Hide later steps from the side panel.</small></div>
+        <div className="research-graph-canvas" ref={canvasRef} style={{ minWidth: `${Math.max(columns.length, 1) * 245}px` }}>
+          <svg className="research-links" aria-label="Research relationships">
+            <defs><marker id="graph-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" /></marker></defs>
+            {lines.map((line) => {
+              const labelWidth = Math.max(38, line.label.length * 5.5 + 12);
+              return <g key={line.id} className={`research-link ${line.primary ? "primary" : "cross-link"} ${line.relationship} ${line.connected ? "connected" : "muted"}`}>
+                <path d={line.path} markerEnd="url(#graph-arrow)" />
+                <rect x={line.x - labelWidth / 2} y={line.y - 8} width={labelWidth} height={16} rx={8} />
+                <text x={line.x} y={line.y + 3}>{line.label}</text>
+              </g>;
+            })}
+          </svg>
+          <div className="research-columns research-trace-columns" style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(210px, 1fr))` }}>
+            {columns.map((column) => (
+              <section className="research-column trace-step" key={column.depth}>
+                <div className="research-column-title"><span>{column.depth === 0 ? "Starting points" : column.depth === 1 ? "Next step" : `${column.depth} steps later`}</span><small>{column.nodes.length}</small></div>
+                <div className="research-column-cards">
+                  {column.nodes.map((node) => (
+                    <ResearchNodeCard
+                      key={node.id}
+                      node={node}
+                      workspace={workspace}
+                      selected={selectedId === node.id}
+                      muted={Boolean(selectedId) && !focusedIds.has(node.id)}
+                      mapLevel={mapLevel}
+                      onSelect={onSelect}
+                      cardRef={setCardRef(node.id)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+            {!visibleNodes.length && <div className="empty-branch">No research-map items are visible at this level.</div>}
+          </div>
         </div>
       </div>
     </div>
@@ -200,6 +363,8 @@ function ResearchNodeCard({
   node,
   workspace,
   selected,
+  muted = false,
+  mapLevel = 1,
   onSelect,
   cardRef,
   compact = false,
@@ -208,6 +373,8 @@ function ResearchNodeCard({
   node: ResearchNode;
   workspace: Workspace;
   selected: boolean;
+  muted?: boolean;
+  mapLevel?: MapLevel;
   onSelect: (id: string) => void;
   cardRef?: (element: HTMLButtonElement | null) => void;
   compact?: boolean;
@@ -228,19 +395,19 @@ function ResearchNodeCard({
   const claimIds = new Set(contextApproaches.map((item) => item.target_claim_id).filter(Boolean));
   const historical = workspace.runs.filter((run) => run.claim_id && claimIds.has(run.claim_id)).length;
   return (
-    <button ref={cardRef} className={`node-card ${selected ? "selected" : ""} ${compact ? "compact" : ""} ${direction ? "direction" : ""}`} onClick={() => onSelect(node.id)}>
+    <button ref={cardRef} className={`node-card kind-${node.kind} ${selected ? "selected" : ""} ${muted ? "muted" : ""} ${compact ? "compact" : ""} ${direction ? "direction" : ""}`} onClick={() => onSelect(node.id)}>
       <div className="node-topline">
-        <span className={`node-kind ${node.kind}`}>{node.kind === "question" ? <Target size={13} /> : node.kind === "direction" ? <Route size={13} /> : <FlaskConical size={13} />}{nodeKindLabels[node.kind]}</span>
+        <span className={`node-kind ${node.kind}`}><NodeTypeIcon node={node} />{nodeTypeLabel(node)}</span>
         <span className={`status-label ${node.status}`}>{statusLabels[node.status]}</span>
       </div>
       <h3>{node.title}</h3>
-      {node.summary && <p>{node.summary}</p>}
-      {node.kind === "approach" && (
+      {mapLevel > 0 && node.summary && <p>{node.summary}</p>}
+      {mapLevel === 2 && (node.kind === "approach" || node.kind === "finding") && (
         <>
           <div className="node-signals"><span><i className={`signal promise-${node.promise}`} /> {titleCase(node.promise)} potential</span><span><i className={`signal evidence-${node.evidence_strength}`} /> {titleCase(node.evidence_strength)} support</span></div>
         </>
       )}
-      {node.kind !== "question" && (
+      {mapLevel === 2 && node.kind === "approach" && (
         <div className="node-run-strip">
           {running > 0 && <span className="running">{running} running</span>}
           {reviewed > 0 && <span className="worked">{reviewed} reviewed</span>}
@@ -253,8 +420,8 @@ function ResearchNodeCard({
   );
 }
 
-function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: { node: ResearchNode | null; workspace: Workspace; onOpenPolicy: (nodeId: string) => void; onSelect: (nodeId: string) => void; onDiscuss: (request: Omit<DiscussionRequest, "id">) => void }) {
-  if (!node) return <aside className="detail-panel empty">Choose a question, idea, or experiment from the map.</aside>;
+function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss, collapsed, hasLaterSteps, onToggleBranch }: { node: ResearchNode | null; workspace: Workspace; onOpenPolicy: (nodeId: string) => void; onSelect: (nodeId: string) => void; onDiscuss: (request: Omit<DiscussionRequest, "id">) => void; collapsed: boolean; hasLaterSteps: boolean; onToggleBranch: (nodeId: string) => void }) {
+  if (!node) return <aside className="detail-panel empty">Choose a question, idea, work item, or finding from the map.</aside>;
   const claim = workspace.claims.find((item) => item.id === node.target_claim_id);
   const plans = node.kind === "approach" ? workspace.packages.filter((plan) => plan.approach_id === node.id) : [];
   const attempts = attemptsFor(node, workspace).slice().reverse();
@@ -264,16 +431,23 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: 
   return (
     <aside className="detail-panel">
       <div className="detail-scroll">
-        <div className="detail-heading"><div className="section-kicker">Selected {nodeKindLabels[node.kind].toLowerCase()}</div><h2>{node.title}</h2>{node.summary && <p>{node.summary}</p>}</div>
+        <div className="detail-heading"><div className="section-kicker">Selected {nodeTypeLabel(node).toLowerCase()}</div><h2>{node.title}</h2>{node.summary && <p>{node.summary}</p>}</div>
 
         <div className="research-item-actions">
-          {node.kind === "question" && <button className="primary" onClick={() => onDiscuss(addIdeaFromQuestionDiscussion(workspace, node))}><Plus size={14} /><span><strong>Add idea</strong><small>Develop a direction for this question</small></span></button>}
-          {node.kind === "direction" && <button className="primary" onClick={() => onDiscuss(addExperimentFromIdeaDiscussion(workspace, node))}><Plus size={14} /><span><strong>Add experiment</strong><small>Turn this idea into a concrete test</small></span></button>}
-          <div className="research-item-secondary-actions">
-            <button onClick={() => onDiscuss(researchMapDiscussion(workspace, node))}><MessageSquareText size={13} /> Explore</button>
-            <button onClick={() => onDiscuss(reviseResearchNodeDiscussion(workspace, node))}><Pencil size={13} /> Revise</button>
-            <button onClick={() => onDiscuss(connectResearchNodeDiscussion(workspace, node))}><Link2 size={13} /> Connect</button>
+          <button className="primary" onClick={() => onDiscuss(continueResearchFromNodeDiscussion(node))}><ArrowRight size={14} /><span><strong>Continue from here</strong><small>Decide whether the next step is an idea, review, experiment, finding, or another path</small></span></button>
+          <div className="research-next-actions">
+            {node.kind === "question" && <button onClick={() => onDiscuss(addIdeaFromQuestionDiscussion(node))}><Lightbulb size={13} /> Add idea</button>}
+            {node.kind === "direction" && <button onClick={() => onDiscuss(addExperimentFromIdeaDiscussion(node))}><FlaskConical size={13} /> Add experiment</button>}
+            {node.kind === "approach" && <button onClick={() => onDiscuss(addFindingDiscussion(node))}><SearchCheck size={13} /> Record finding</button>}
+            {(node.kind === "finding" || node.kind === "approach") && <button onClick={() => onDiscuss(addFollowUpIdeaDiscussion(node))}><Lightbulb size={13} /> Follow-up idea</button>}
+            <button onClick={() => onDiscuss(addLiteratureReviewDiscussion(node))}><BookOpen size={13} /> Literature review</button>
           </div>
+          <div className="research-item-secondary-actions">
+            <button onClick={() => onDiscuss(researchMapDiscussion(node))}><MessageSquareText size={13} /> Chat</button>
+            <button onClick={() => onDiscuss(reviseResearchNodeDiscussion(node))}><Pencil size={13} /> Revise</button>
+            <button onClick={() => onDiscuss(connectResearchNodeDiscussion(node))}><Link2 size={13} /> Connect</button>
+          </div>
+          {hasLaterSteps && <button className="branch-visibility-button" onClick={() => onToggleBranch(node.id)}><GitBranch size={13} /> {collapsed ? "Show later steps" : "Hide later steps"}</button>}
         </div>
 
         <div className="research-state-row">
@@ -288,17 +462,17 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: 
             const outgoing = link.source_id === node.id;
             const other = workspace.nodes.find((item) => item.id === (outgoing ? link.target_id : link.source_id));
             if (!other) return null;
-            return <button key={link.id} onClick={() => onSelect(other.id)}><span>{outgoing ? "To" : "From"} {nodeKindLabels[other.kind].toLowerCase()} · {relationshipLabels[link.relationship]}</span><strong>{other.title}</strong>{link.note && <small>{link.note}</small>}</button>;
+            return <button key={link.id} onClick={() => onSelect(other.id)}><span>{outgoing ? "To" : "From"} {nodeTypeLabel(other).toLowerCase()} · {relationshipLabels[link.relationship]}</span><strong>{other.title}</strong>{link.note && <small>{link.note}</small>}</button>;
           })}
           {!connections.length && <p>No relationships have been recorded for this item yet.</p>}
         </div>
 
         {node.kind === "approach" && (
           <div className="idea-policy-card">
-            <div className="card-label"><ShieldCheck size={14} /> Policy for the next work</div>
+            <div className="card-label"><ShieldCheck size={14} /> Policy for this work</div>
             <h3>{workKindLabels[node.next_work_kind] ?? titleCase(node.next_work_kind)}</h3>
-            <p>{node.agent_guidance || "No experiment-specific guidance has been recorded yet. Chat with the agent about it."}</p>
-            {node.ask_before && <small><strong>Stop and ask before:</strong> {node.ask_before}</small>}
+            <p>{node.agent_guidance || "No special guidance has been recorded for this work yet. Chat with the agent about it."}</p>
+            {node.ask_before && <small><strong>Stop only if:</strong> {node.ask_before}</small>}
             <button onClick={() => onOpenPolicy(node.id)}>Open policy <ArrowRight size={14} /></button>
           </div>
         )}
@@ -307,7 +481,7 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: 
 
         {node.kind === "approach" && (
           <div className="attached-runs">
-            <div className="card-label"><Activity size={14} /> Work and results for this experiment</div>
+            <div className="card-label"><Activity size={14} /> Runs and results for this work</div>
             {attempts.map((attempt) => {
               const plan = plans.find((item) => item.id === attempt.package_id);
               const review = workspace.reviews.find((item) => item.attempt_id === attempt.id);
@@ -319,7 +493,7 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: 
                 <p><strong>Recorded result:</strong> {titleCase(run.verdict)}</p>
               </div>
             ))}
-            {!attempts.length && !historicalRuns.length && <div className="no-attached-runs">No work has been recorded for this experiment yet.</div>}
+            {!attempts.length && !historicalRuns.length && <div className="no-attached-runs">No run or result review has been recorded for this work yet.</div>}
           </div>
         )}
 
@@ -329,7 +503,7 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss }: 
 
         {nodeHistory.length > 0 && (
           <div className="decision-history">
-            <div className="card-label"><GitBranch size={14} /> How this {node.kind === "approach" ? "experiment" : node.kind === "direction" ? "idea" : "question"} evolved</div>
+            <div className="card-label"><GitBranch size={14} /> How this {nodeTypeLabel(node).toLowerCase()} evolved</div>
             {nodeHistory.map((change) => (
               <div className="decision-row" key={change.id}>
                 <span>{new Date(change.created_at).toLocaleDateString()}</span>

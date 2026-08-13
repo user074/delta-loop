@@ -1,24 +1,17 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Box, ChevronDown, ChevronUp, MessageCircle, Plus, Power, SquareTerminal, X } from "lucide-react";
+import { Box, ChevronDown, ChevronUp, Maximize2, MessageCircle, Minimize2, Plus, Power, SquareTerminal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from "./api";
 import type { DiscussionRequest } from "./discussions";
-import type { ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
-
-const RESEARCH_START_PROMPT = [
-  "You are starting or continuing the project's real research loop as its persistent supervisor. This is research work, not a discussion about how the loop should work.",
-  "Run `delta context` and `delta compute show` first. Then follow the complete active LOOP.md and POLICY.md supplied to this session, starting from the first incomplete step.",
-  "Use the current research map and policy to choose the next eligible, useful test. Respect any idea-specific instructions and every point where the researcher must be asked.",
-  "When execution is needed, start one sealed, bounded piece of work with `delta work start`; do not bypass the saved compute location by running the research command directly. Follow it with `delta work show`. Keep the detailed evidence auditable and update the project research memory after checking the result.",
-  "Continue through immediate cycles until an active stop rule, approval boundary, genuine blocker, or ambiguity requires the researcher. Do not stop merely to narrate progress, rehearse Delta Loop, or ask whether you should continue.",
-].join("\n\n");
+import type { AppPage, ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
 
 const nodeKindLabels: Record<ResearchNode["kind"], string> = {
   question: "research question",
   direction: "research idea",
-  approach: "experiment",
+  approach: "research work",
+  finding: "finding",
 };
 
 function researchStartPrompt(
@@ -26,43 +19,38 @@ function researchStartPrompt(
   request: ResearchLaunchRequest,
   focus: ResearchNode | null,
 ) {
-  if (!focus) {
-    return `${RESEARCH_START_PROMPT}\n\nThe researcher started this session from the ${request.sourcePage} page without pointing to a specific item in the research map. Consider the whole research map when choosing the next work.`;
-  }
-
-  const connections = workspace.research_links.filter((link) => link.source_id === focus.id || link.target_id === focus.id);
-  const connectedItems = connections.flatMap((link) => {
-    const outgoing = link.source_id === focus.id;
-    const other = workspace.nodes.find((node) => node.id === (outgoing ? link.target_id : link.source_id));
-    return other ? [`${outgoing ? link.relationship : `${link.relationship} this`}: ${other.title}`] : [];
-  });
-  const focusDetails = [
-    "The researcher pressed the research button while this item was selected on the visual Research page. Treat it as their current focus and begin by considering work in this branch. This is an attention signal, not permission to ignore the active policy or its approval boundaries.",
-    `Selected item type: ${nodeKindLabels[focus.kind]}`,
-    `Selected item ID: ${focus.id}`,
-    `Selected item: ${focus.title}`,
-    focus.summary ? `Summary: ${focus.summary}` : "",
-    `Status: ${focus.status}`,
-    `Potential: ${focus.promise}`,
-    `Evidence so far: ${focus.evidence_strength}`,
-    connectedItems.length ? `Connected research items: ${connectedItems.join("; ")}` : "No research relationships are recorded for this item yet.",
-    focus.kind === "approach" ? `Next work requested in the UI: ${focus.next_work_kind}` : "",
-    focus.agent_guidance ? `Special guidance for this item: ${focus.agent_guidance}` : "",
-    focus.ask_before ? `Ask the researcher before: ${focus.ask_before}` : "",
-  ].filter(Boolean);
-  return `${RESEARCH_START_PROMPT}\n\n${focusDetails.join("\n")}`;
+  const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
+  const focusInstruction = focus
+    ? `Start from the selected ${nodeKindLabels[focus.kind]}: "${focus.title}" [${focus.id}]. Continue elsewhere in the map when that path is exhausted or blocked.`
+    : `Started from ${request.sourcePage}; choose across the whole active research map.`;
+  const success = oneLine(workspace.initialization.success_condition) || "the active research question has a well-supported answer or the saved policy says the project is complete";
+  const stop = oneLine(workspace.initialization.stop_condition) || "no safe useful work remains after trying eligible alternatives";
+  const budget = oneLine(workspace.initialization.budget) || "the saved compute and resource limits";
+  return [
+    `/goal Advance the research question through repeated evidence-producing cycles without waiting for the researcher. Keep working until ${success}, ${stop}, or ${budget} is exhausted.`,
+    `Main research question: ${oneLine(workspace.goal)}`,
+    oneLine(focusInstruction),
+    "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md. Use `delta work start` for execution, follow each run to completion, check the result, update the research memory and map, and immediately begin the next useful cycle.",
+    "Do not ask for approval of plans, scientific choices, routine implementation or debugging, result interpretation, map updates, replication, or promotion to a larger study. Make the best policy-compliant choice and record the reason.",
+    "When uncertain, run the smallest safe test that can distinguish the options. If a path fails or is blocked, record why, park or revise it when appropriate, and continue with another eligible path.",
+    "Stop only for the saved success or stop condition, an exhausted compute or budget limit, a necessary action prohibited by policy, missing access that cannot be worked around, or when no safe useful work remains across the active map. The researcher may be away; absence is not a reason to pause.",
+  ].join(" ");
 }
 
-function additionalChatPrompt(workspace: Workspace, focus: ResearchNode | null) {
-  const focusText = focus
-    ? `The researcher opened this additional chat while focused on the ${nodeKindLabels[focus.kind]} "${focus.title}" [${focus.id}]. Use that as context, but do not assume what they want changed.`
-    : "The researcher opened this additional chat from the project without selecting a specific research item.";
+function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) {
+  const focusText = currentPage === "research" && focus
+    ? `This chat was opened from Research with this ${nodeKindLabels[focus.kind]} selected: "${focus.title}" [${focus.id}].`
+    : currentPage === "policy"
+      ? "This chat was opened from Policy. Do not use a selection from another page unless the researcher mentions it."
+      : currentPage === "compute"
+        ? "This chat was opened from Compute. Do not use a selection from another page."
+        : currentPage === "home"
+          ? "This chat was opened from Home. Start from the overall project, not a previous selection."
+          : "No research item is selected for this chat.";
   return [
-    "You are an additional Delta Loop discussion session. This chat runs alongside other terminals; do not stop, replace, or take over another session.",
-    "Run `delta context` first so you understand the current project and active rules.",
+    "This is a separate Delta Loop chat. Run `delta context` first.",
     focusText,
-    "Ask one short question about what the researcher wants to discuss. Do not start experiments or edit the research project until they clearly request work in this chat.",
-    `Project: ${workspace.name}`,
+    "Ask what the researcher wants to do. Do not start research work unless they request it here.",
   ].join("\n\n");
 }
 
@@ -78,13 +66,11 @@ function TerminalView({
   onConnectionChange: (sessionId: string, state: TerminalConnectionState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const [readingEarlier, setReadingEarlier] = useState(false);
+  const readingEarlier = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    setReadingEarlier(false);
+    readingEarlier.current = false;
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: false,
@@ -92,7 +78,7 @@ function TerminalView({
       fontSize: 13,
       lineHeight: 1.3,
       scrollback: 50000,
-      scrollOnUserInput: false,
+      scrollOnUserInput: true,
       smoothScrollDuration: 80,
       theme: {
         background: "#24241f",
@@ -106,7 +92,6 @@ function TerminalView({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(containerRef.current);
-    terminalRef.current = terminal;
     fit.fit();
 
     const socketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -127,7 +112,6 @@ function TerminalView({
       socket = new WebSocket(
         `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws?columns=${terminal.cols}&rows=${terminal.rows}`,
       );
-      socketRef.current = socket;
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
         if (retries) {
@@ -181,6 +165,11 @@ function TerminalView({
     connect();
     const input = terminal.onData((data) => {
       if (readyForInput && socket?.readyState === WebSocket.OPEN) {
+        if (readingEarlier.current) {
+          if (session.persistent) socket.send(JSON.stringify({ type: "latest" }));
+          else terminal.scrollToBottom();
+          readingEarlier.current = false;
+        }
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
@@ -191,7 +180,7 @@ function TerminalView({
     });
     const scroll = terminal.onScroll(() => {
       if (!session.persistent) {
-        setReadingEarlier(terminal.buffer.active.viewportY < terminal.buffer.active.baseY);
+        readingEarlier.current = terminal.buffer.active.viewportY < terminal.buffer.active.baseY;
       }
     });
     let wheelRemainder = 0;
@@ -214,7 +203,7 @@ function TerminalView({
         if (wholeLines) {
           sendPersistentScroll(wholeLines);
           wheelRemainder -= wholeLines;
-          if (wholeLines < 0) setReadingEarlier(true);
+          if (wholeLines < 0) readingEarlier.current = true;
         }
         return;
       }
@@ -242,9 +231,9 @@ function TerminalView({
         else if (event.key === "PageDown") sendPersistentScroll(terminal.rows);
         else if (event.key === "End") {
           socket?.send(JSON.stringify({ type: "latest" }));
-          setReadingEarlier(false);
+          readingEarlier.current = false;
         } else return true;
-        if (event.key !== "End") setReadingEarlier(true);
+        if (event.key !== "End") readingEarlier.current = true;
       } else if (event.key === "ArrowUp") terminal.scrollLines(-3);
       else if (event.key === "ArrowDown") terminal.scrollLines(3);
       else if (event.key === "PageUp") terminal.scrollPages(-1);
@@ -270,36 +259,17 @@ function TerminalView({
         socket.onmessage = null;
         socket.close(1000);
       }
-      if (socketRef.current === socket) socketRef.current = null;
-      terminalRef.current = null;
       terminal.dispose();
     };
   }, [onConnectionChange, onEnded, session.id, session.persistent]);
 
-  return (
-    <div className="terminal-screen-wrap">
-      <div className="terminal-screen" ref={containerRef} />
-      {readingEarlier && (
-        <button
-          className="terminal-jump-latest"
-          onClick={() => {
-            terminalRef.current?.scrollToBottom();
-            setReadingEarlier(false);
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-              socketRef.current.send(JSON.stringify({ type: "latest" }));
-            }
-          }}
-        >
-          Latest message
-        </button>
-      )}
-    </div>
-  );
+  return <div className="terminal-screen-wrap"><div className="terminal-screen" ref={containerRef} /></div>;
 }
 
 export default function TerminalDock({
   workspace,
   selectedNode,
+  currentPage,
   discussion,
   researchStartRequest,
   onResearchSessionChange,
@@ -309,6 +279,7 @@ export default function TerminalDock({
 }: {
   workspace: Workspace;
   selectedNode: ResearchNode | null;
+  currentPage: AppPage;
   discussion: DiscussionRequest | null;
   researchStartRequest: ResearchLaunchRequest | null;
   onResearchSessionChange: (session: TerminalSessionInfo | null) => void;
@@ -319,6 +290,7 @@ export default function TerminalDock({
   const [sessions, setSessions] = useState<TerminalSessionInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [busy, setBusy] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [confirmStopAll, setConfirmStopAll] = useState(false);
@@ -351,6 +323,22 @@ export default function TerminalDock({
   useEffect(() => {
     onExpandedChange(expanded);
   }, [expanded, onExpandedChange]);
+
+  useEffect(() => {
+    if (!expanded) setMaximized(false);
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!maximized) return;
+    const restoreOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMaximized(false);
+    };
+    window.addEventListener("keydown", restoreOnEscape, true);
+    return () => window.removeEventListener("keydown", restoreOnEscape, true);
+  }, [maximized]);
 
   const refreshSessions = useCallback(() => {
     return listTerminals(workspace.id)
@@ -428,11 +416,12 @@ export default function TerminalDock({
     setBusy(true);
     setNewMenuOpen(false);
     try {
+      const pageFocus = currentPage === "research" ? selectedNode : null;
       const existing = !alwaysNew && sessions.find(
-        (session) => session.kind === "shell" && session.status === "active" && session.node_id === selectedNode?.id,
+        (session) => session.kind === "shell" && session.status === "active" && session.node_id === pageFocus?.id,
       );
-      const title = selectedNode ? `Terminal · ${selectedNode.title}` : "Terminal · project";
-      const session = existing || (await createTerminal(workspace.id, selectedNode?.id ?? null, undefined, "shell", title));
+      const title = pageFocus ? `Terminal · ${pageFocus.title}` : `Terminal · ${currentPage}`;
+      const session = existing || (await createTerminal(workspace.id, pageFocus?.id ?? null, undefined, "shell", title));
       if (!existing) setSessions((current) => [...current, session]);
       setActiveId(session.id);
       setExpanded(true);
@@ -447,11 +436,13 @@ export default function TerminalDock({
     setBusy(true);
     setNewMenuOpen(false);
     try {
-      const title = selectedNode ? `Chat · ${selectedNode.title}` : "Chat · project";
+      const pageFocus = currentPage === "research" ? selectedNode : null;
+      const pageLabel = currentPage[0].toUpperCase() + currentPage.slice(1);
+      const title = pageFocus ? `Chat · ${pageFocus.title}` : `Chat · ${pageLabel}`;
       const session = await createTerminal(
         workspace.id,
-        selectedNode?.id ?? null,
-        additionalChatPrompt(workspace, selectedNode),
+        pageFocus?.id ?? null,
+        additionalChatPrompt(currentPage, pageFocus),
         "discussion",
         title,
       );
@@ -506,7 +497,7 @@ export default function TerminalDock({
   }, []);
 
   return (
-    <section className={`terminal-dock ${expanded ? "expanded" : ""} ${runningSessions.length ? "has-sessions" : ""}`}>
+    <section className={`terminal-dock ${expanded ? "expanded" : ""} ${maximized ? "maximized" : ""} ${runningSessions.length ? "has-sessions" : ""}`}>
       <div className="terminal-bar">
         <div className="terminal-heading">
           <SquareTerminal size={15} />
@@ -538,6 +529,15 @@ export default function TerminalDock({
               <span className={`terminal-state ${expanded ? connectionState : "connected"}`}>
                 <span /> {expanded ? connectionState : "running"}
               </span>
+              {expanded && (
+                <button
+                  onClick={() => setMaximized((value) => !value)}
+                  title={maximized ? "Return the terminal to the bottom of the page" : "Use the whole window for the terminal"}
+                >
+                  {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  {maximized ? "Restore" : "Full screen"}
+                </button>
+              )}
               <button onClick={() => setExpanded((value) => !value)}>
                 {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 {expanded ? "Hide" : "Show"}
@@ -605,7 +605,7 @@ export default function TerminalDock({
         <div className="terminal-preview">
           <span className="prompt">delta</span>
           <span>{active ? `${active.title} is still running.` : "No terminal is running for this project."}</span>
-          <button><Box size={13} /> {selectedNode ? "Selection is ready" : "Choose an item first"}</button>
+          <button><Box size={13} /> {currentPage === "research" && selectedNode ? "Selection is ready" : `${currentPage[0].toUpperCase() + currentPage.slice(1)} context`}</button>
         </div>
       )}
     </section>

@@ -464,7 +464,7 @@ tail -n 2000 "$run_dir/run.log" 2>/dev/null || true
             f"## Type of work\n{package.work_kind.replace('-', ' ')}",
             f"## Why now\n{package.why_now or 'Not stated.'}",
             f"## Guidance for this idea\n{package.idea_guidance or 'Follow the approved steps below.'}",
-            f"## Stop and ask before\n{package.ask_before or 'Ask before changing the question, data, main comparison, or measurement.'}",
+            f"## Stop only if\n{package.ask_before or 'A saved limit or prohibition makes the work impossible. Resolve ordinary implementation and debugging choices within scope.'}",
             f"## What to do\n{package.instructions}",
             f"## Files, data, models, and code\n{package.inputs or 'Use only what the plan requires.'}",
             f"## Fair comparison\n{package.comparison or 'Not stated.'}",

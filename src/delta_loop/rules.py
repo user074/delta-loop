@@ -3,7 +3,7 @@ from __future__ import annotations
 from .models import AgentRule, RulesVersion
 
 
-POLICY_SCHEMA_VERSION = 5
+POLICY_SCHEMA_VERSION = 6
 
 # These were the first POC's simplified loop. Their jobs now live in the complete
 # delta-research cycle below, so keeping them as loop steps would show the work twice.
@@ -15,6 +15,18 @@ LEGACY_LOOP_RULE_IDS = {
 }
 
 LEGACY_RULE_INSTRUCTIONS = {
+    "loop-run-worker": (
+        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, "
+        "debug, plot, and report within that scope, and must stop for blockers or changes that require "
+        "approval."
+    ),
+    "loop-finish-cycle": (
+        "Follow the active Git and publishing rules, then check the recorded stop conditions. If no "
+        "condition applies, continue to the next cycle in the same supervisor session."
+    ),
+    "ask-before-full-study": (
+        "Stop and ask the researcher before moving from a small or confirming test into a full study."
+    ),
     "git-reviewed-work": (
         "Commit meaningful reviewed work in a focused commit, and ask the researcher before pushing "
         "or changing shared GitHub state."
@@ -94,8 +106,9 @@ def _default_rules() -> list[AgentRule]:
             title="Give the work to a bounded worker",
             instruction=(
                 "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, "
-                "debug, plot, and report within that scope, and must stop for blockers or changes that require "
-                "approval."
+                "debug, plot, repair scope-preserving failures, and report within that scope. If the worker cannot "
+                "finish, the supervisor should revise the package or choose another useful path without waiting "
+                "for routine researcher approval."
             ),
             category="loop",
             when="After the plan is sealed",
@@ -139,8 +152,9 @@ def _default_rules() -> list[AgentRule]:
             id="loop-finish-cycle",
             title="Save reviewed work and continue",
             instruction=(
-                "Follow the active Git and publishing rules, then check the recorded stop conditions. If no "
-                "condition applies, continue to the next cycle in the same supervisor session."
+                "Follow the active Git and publishing rules, check the recorded success, stop, and resource "
+                "conditions, then immediately begin the next cycle when none applies. Do not wait for the "
+                "researcher between cycles."
             ),
             category="loop",
             when="After research memory is updated",
@@ -149,14 +163,15 @@ def _default_rules() -> list[AgentRule]:
         ),
         AgentRule(
             id="keep-main-question",
-            title="Do not change the main question",
+            title="Keep the main question stable",
             instruction=(
-                "Do not change the main research question, the main comparison, or the measurement without "
-                "stopping and asking the researcher."
+                "Keep the saved main research question as the project frame. If evidence suggests a different "
+                "question, record it as a connected question or idea and continue useful work under the current "
+                "frame instead of stopping for approval."
             ),
             category="checkpoint",
-            when="Before changing the question, main comparison, or measurement",
-            source_label="Delta Loop · researcher approval boundary",
+            when="Evidence suggests changing the main project question",
+            source_label="Delta Loop · stable project boundary",
             cannot_override=True,
         ),
         AgentRule(
@@ -164,7 +179,8 @@ def _default_rules() -> list[AgentRule]:
             title="Keep project records safe",
             instruction=(
                 "Only the supervisor may update STATE.md after checking a result. Workers must not modify it, "
-                "and the agent must not accept a scientific conclusion on the researcher's behalf."
+                "and the supervisor must keep observations, working interpretations, uncertainty, and final "
+                "claims visibly separate."
             ),
             category="project",
             when="Whenever project records are updated",
@@ -218,12 +234,29 @@ def _default_rules() -> list[AgentRule]:
         ),
         AgentRule(
             id="ask-before-full-study",
-            title="Ask before a full study",
+            title="Promote useful signals to a full study",
             instruction=(
-                "Stop and ask the researcher before moving from a small or confirming test into a full study."
+                "Move from a small or confirming test into a full study when the checked evidence, active idea "
+                "policy, and saved resource limits justify it. Record why the larger study is worth running and "
+                "continue without waiting for approval."
             ),
             category="checkpoint",
-            when="Before starting a full study",
+            when="A checked result may justify a full study",
+            source_label="Researcher preference · Delta Loop",
+        ),
+        AgentRule(
+            id="continuous-research",
+            title="Keep researching while unattended",
+            instruction=(
+                "Choose, run, review, and record one useful piece of work after another without asking for plan, "
+                "implementation, interpretation, map-update, or promotion approval. Resolve ambiguity with the "
+                "smallest discriminating test. If one path is blocked, record why, park it when appropriate, and "
+                "continue with another eligible path. Stop only for a saved success or stop condition, an exhausted "
+                "resource limit, an action prohibited by policy, or when no safe useful work remains."
+            ),
+            category="project",
+            when="The researcher starts the continuous research loop",
+            loop_step_ids=["loop-finish-cycle"],
             source_label="Researcher preference · Delta Loop",
         ),
         AgentRule(
@@ -355,11 +388,12 @@ def upgrade_policy_rules(version: RulesVersion) -> tuple[list[AgentRule], bool]:
                 changed = True
             current = template.model_copy(deep=True)
         elif template:
-            if (
-                current.instruction == LEGACY_RULE_INSTRUCTIONS.get(current.id)
-                and current.instruction != template.instruction
-            ):
+            migrate_from_legacy = current.instruction == LEGACY_RULE_INSTRUCTIONS.get(current.id)
+            if migrate_from_legacy and current.instruction != template.instruction:
+                current.title = template.title
                 current.instruction = template.instruction
+                current.when = template.when
+                current.source_label = template.source_label
                 changed = True
             if current.category in {"project", "loop"} and current.category != template.category:
                 current.category = template.category

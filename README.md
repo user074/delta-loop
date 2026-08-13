@@ -51,7 +51,7 @@ starting questions and ideas, reusable code and data, what would count as succes
 compute, and how Git should be handled. It does not install software, run experiments, or change the remote
 repository during setup. You approve the complete starting setup before Delta Loop saves it.
 
-The proposed research map has three levels:
+The proposed research map starts with three simple levels:
 
 ```text
 High-level research question
@@ -63,7 +63,9 @@ High-level research question
 ```
 
 Delta Loop keeps the number of ideas small and records when an idea is reframed, parked, reopened, or moved, so
-you can review how the research direction evolved.
+you can review how the research direction evolved. After work starts, the map can continue beyond that initial
+shape: a literature review can lead to an idea, work can produce a finding, a finding can revise or create an idea,
+and failed work can lead to a different experiment.
 
 Finishing setup requires an actual compute check and an actual Git inspection. It creates the first research state,
 summary, literature list, run folders, and a readable record of everything agreed during setup. The Home page keeps
@@ -84,7 +86,7 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Map every test and result back to the idea it examined
 - Discuss the research map with an agent that can add, clarify, move, or park ideas and ways to test them
 - Show which ideas worked, failed, remain uncertain, or have not been tested
-- Start, reopen, or continue one persistent research-supervisor session from the Home page
+- Start one persistent, continuous research session from the Home page; it chooses, runs, reviews, records, and begins the next useful test without waiting between cycles
 - Keep detailed agent plans underneath while showing only the method, data, and question to the researcher
 - Review the loop as main stages, child steps, or exact details; code, data, hardware, file, and Git instructions appear inside the steps that use them
 - See whether an instruction came from `delta-research`, a researcher preference, or a local lab rule
@@ -96,6 +98,7 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Check the remote project, Python, Git, and GPUs without starting research work
 - See the actual research repository separately from Delta Loop's local control folder, and check its branch, remote, upstream, and changed files without fetching
 - Let Codex manage reviewed commits and optional pushes only under explicit, checked Git policy rules
+- Keep unattended research inside saved success, stop, compute, budget, Git, and project rules instead of asking for routine scientific or implementation approval
 - Keep remote jobs running when the browser closes, reconnect to their status and recent logs, and show exactly where large output remains
 - Limit how many independent approved plans may run at the same time
 - Change the agent rules safely through checked, reversible versions
@@ -152,7 +155,7 @@ in the UI:
 delta context
 delta project inspect-remote --host lab-gpu --project ~/projects/my-research
 delta project read-remote --host lab-gpu --project ~/projects/my-research src/train.py src/model.py
-delta project finish-setup --summary "Short project summary" --prior-work "Baseline result" --reference /path/to/reference --input /path/to/dataset --success "A reproducible answer" --stop "Ask before changing the dataset" --budget "Two small GPU runs" --permissions scoped --environment-verified --git-reviewed --constraint "Do not change the evaluation dataset"
+delta project finish-setup --summary "Short project summary" --prior-work "Baseline result" --reference /path/to/reference --input /path/to/dataset --success "A reproducible answer" --stop "Stop if useful work would require changing the evaluation dataset" --budget "Two small GPU runs" --permissions scoped --environment-verified --git-reviewed --constraint "Do not change the evaluation dataset"
 delta compute show
 delta compute inspect --local
 delta compute inspect --host lab-gpu --project ~/projects/my-research
@@ -169,6 +172,9 @@ delta map show
 delta map add-question "How broadly does the effect generalize?" --summary "A second high-level question"
 delta map add-idea "A possible explanation" --under QUESTION_ID --summary "Why it may matter"
 delta map add-test "Smallest useful test" --under IDEA_ID
+delta map add-work "Focused literature review" --kind literature-review --under QUESTION_ID --relationship leads-to
+delta map add-finding "The effect survives the matched control" --under WORK_ID --summary "Observed result and limits"
+delta map add-idea "A revised explanation" --under FINDING_ID --relationship revises
 delta map connect QUESTION_ID IDEA_ID --relationship explores --note "This idea may answer both questions"
 delta map connect ANOTHER_ID EXPERIMENT_ID --relationship tests
 delta map connect EXPERIMENT_ID ANOTHER_ID --relationship informs
@@ -183,17 +189,29 @@ delta harness show
 delta harness update
 ```
 
-The Research page is a graph with three readable columns: high-level questions, mid-level ideas, and concrete
-experiments. A project can have several questions. An idea may connect to more than one question, and an experiment
-may test or inform more than one idea. Connections have plain meanings—`explores`, `tests`, `supports`, `challenges`,
-`informs`, `depends-on`, or `related`—and are drawn directly on the map. Selecting an item highlights only its
-connections and shows the same relationships in the detail panel. Existing projects keep their original primary
-parent for compatibility while Delta Loop automatically exposes that parent as a graph connection.
+**Start research** creates a Codex goal rather than one ordinary chat turn. The goal keeps the same supervisor
+working across repeated research cycles: choose a useful test, run it, check the evidence, update the research map,
+and start the next test. It does not wait for approval of a plan, routine implementation or debugging, scientific
+interpretation, replication, or promotion to a larger study. When a path is blocked, it records the problem and
+tries another eligible path.
 
-The map is also the entry point for changing the research. **Add question** starts a focused Codex conversation.
-Selecting a question exposes **Add idea**; selecting an idea exposes **Add experiment**. Every selected item has
-**Explore**, **Revise**, and **Connect** actions. Codex receives the selected item and current graph automatically,
-proposes the change, and writes it only after the researcher approves it.
+The goal stops only when the saved success or stop condition applies, the compute or budget limit is exhausted, a
+necessary action is prohibited by policy, required access is unavailable, or no safe useful work remains. You can
+still interrupt it at any time. In the research terminal, `/goal` shows its status, `/goal pause` pauses it, `/goal
+resume` continues it, and `/goal clear` ends the goal. Closing the Delta Loop terminal intentionally stops that
+terminal; merely hiding the panel or disconnecting the browser does not.
+
+The Research page lays out the saved main path from left to right rather than forcing item types into fixed columns.
+A path can continue through questions, ideas, experiments, literature reviews, findings, revised ideas, and follow-up
+work. Lighter cross-links show support, challenges, shared tests, alternatives, and other meaningful relationships.
+The zoom buttons switch between a questions-and-ideas overview, the working map, and detailed cards. Selecting an
+item emphasizes what led to it and what followed; its later steps can be hidden without deleting anything. Existing
+projects retain their original parent placements and automatically appear in the new view.
+
+The map is also the entry point for changing the research. Every selected item can **Continue from here**, add a
+focused literature review, or open Chat, Revise, and Connect actions. Questions can add ideas, ideas can add
+experiments, work can record findings, and work or findings can create follow-up ideas. Codex receives the selected
+item and its surrounding path automatically, proposes the change, and writes it only after approval.
 
 ## Run research work on a remote server
 
@@ -258,14 +276,17 @@ check` and `delta git show`.
 changes or update a checkout that points at a different Git remote. It does not silently replace the active loop;
 that loop remains a checked, reversible Delta Loop policy version.
 
-The discussion and research buttons start Codex without asking for approval for every command or file edit. Codex
-may write inside the selected research project, but the workspace sandbox still prevents it from changing unrelated
-folders. Its command sandbox allows local connections so it can reach Delta Loop at `127.0.0.1`, while other
-internet destinations remain blocked.
+The discussion and research buttons start Codex in full-access mode. This lets a managed chat write Git metadata,
+commit in the actual research repository, use SSH configuration, and work with approved paths outside Delta Loop's
+local control folder. Delta Loop does not add a second API integration: the launched Codex CLI uses the user's own
+Codex login.
 
-This is deliberately safer than Codex's full `--yolo` mode: it removes the repeated prompts without removing the
-project boundary. Set `DELTA_LOOP_AGENT_COMMAND` before starting Delta Loop if you want to supply a different
-interactive agent command.
+Full access is the technical ability to run those commands; it is not permission to commit or push whenever the
+agent wants. The enabled **Git & GitHub** policy still decides when Codex may stage and commit reviewed work, and
+push permission remains separate. New launch behavior applies to new chats, so close and reopen any chat that was
+started before an update. Because full access removes the Codex filesystem and command sandbox, run Delta Loop only
+on a machine and under a user account where you trust the active project and its instructions. Set
+`DELTA_LOOP_AGENT_COMMAND` before starting Delta Loop if you need a more restricted interactive agent command.
 
 ## Alternative: run Delta Loop itself on a remote server
 

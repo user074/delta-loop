@@ -1,5 +1,5 @@
-export type NodeKind = "question" | "direction" | "approach";
-export type ResearchRelationship = "explores" | "tests" | "supports" | "challenges" | "informs" | "depends-on" | "related";
+export type NodeKind = "question" | "direction" | "approach" | "finding";
+export type ResearchRelationship = "explores" | "tests" | "produces" | "revises" | "leads-to" | "alternative-to" | "supports" | "challenges" | "informs" | "depends-on" | "related";
 export type NodeStatus = "primary" | "active" | "dormant" | "closed";
 export type StageAction = "promote" | "repeat" | "revise" | "redirect" | "stop";
 export type WorkKind =
@@ -330,6 +330,8 @@ export interface ResearchLaunchRequest {
   nodeId: string | null;
   sourcePage: "home" | "research" | "policy" | "compute";
 }
+
+export type AppPage = ResearchLaunchRequest["sourcePage"];
 
 export interface HarnessInfo {
   source_url: string;

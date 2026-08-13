@@ -438,7 +438,7 @@ export default function ComputePage({
           <div>
             <div className="section-kicker"><Github size={14} /> Git &amp; GitHub</div>
             <h2>Let Codex keep reviewed work in the repository</h2>
-            <p>Check the real research repository, then decide when Codex may commit, push, or must stop and ask you.</p>
+            <p>Check the real research repository, then decide when Codex may commit or push and which Git actions remain off.</p>
           </div>
           <div className="git-control-actions">
             <button onClick={checkRepository} disabled={!canCheckGit || checkingGit}>
@@ -453,7 +453,7 @@ export default function ComputePage({
 
         <div className="git-shared-machine-note">
           <Github size={16} />
-          <p><strong>The machine's Git and GitHub account is shared.</strong> Git identity, credentials, and installed tools already available on this machine do not need to be set up again. Delta Loop still checks this project's repository, branch, remote, and push permission separately.</p>
+          <p><strong>Codex can write the real repository.</strong> Chats opened by Delta Loop have full access to this machine, including its Git and SSH setup. Delta Loop still checks this project's repository, branch, remote, and push permission separately.</p>
         </div>
 
         <div className="git-location-grid">

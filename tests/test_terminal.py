@@ -54,7 +54,7 @@ def test_terminal_can_start_an_agent_discussion(tmp_path: Path, monkeypatch) -> 
     manager.close(session.id)
 
 
-def test_agent_discussion_receives_complete_loop_and_policy_paths(tmp_path: Path, monkeypatch) -> None:
+def test_agent_discussion_receives_only_requested_startup_message(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DELTA_LOOP_AGENT_COMMAND", "/usr/bin/printf")
     manager = TerminalManager()
     session = manager.create(
@@ -67,15 +67,11 @@ def test_agent_discussion_receives_complete_loop_and_policy_paths(tmp_path: Path
     output = b""
     for _ in range(60):
         output += manager.read(session.id)
-        if b"LOOP.md" in output and b"POLICY.md" in output:
+        if b"Discuss the selected idea." in output:
             break
         time.sleep(0.05)
 
-    assert str(tmp_path / ".delta-loop" / "LOOP.md").encode() in output
-    assert str(tmp_path / ".delta-loop" / "POLICY.md").encode() in output
-    assert b"complete active loop" in output
-    assert b"another supervisor file" in output
-    assert b"SUPERVISOR.md" not in output
+    assert output == b"Discuss the selected idea."
     manager.close(session.id)
 
 
@@ -99,7 +95,30 @@ def test_research_supervisor_session_is_distinct_from_shell_and_chat(tmp_path: P
 
     assert session.kind == "research"
     assert b"Start the real research loop" in output
-    assert str(tmp_path / ".delta-loop" / "LOOP.md").encode() in output
+    assert b"LOOP.md" not in output
+    manager.close(session.id)
+
+
+def test_goal_is_typed_into_the_live_agent_instead_of_passed_as_plain_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DELTA_LOOP_AGENT_COMMAND", "/bin/sh")
+    manager = TerminalManager()
+    goal = "/goal Keep running research cycles until the saved stop condition applies."
+    session = manager.create("workspace", str(tmp_path), None, goal, "research")
+    record = manager._sessions[session.id]
+
+    assert record.process.args == ["/bin/sh"]
+
+    output = b""
+    for _ in range(80):
+        output += manager.read(session.id)
+        if goal.encode() in output:
+            break
+        time.sleep(0.05)
+
+    assert goal.encode() in output
     manager.close(session.id)
 
 
@@ -205,15 +224,11 @@ def test_agent_connection_forces_a_clean_redraw_without_tmux(
     manager.close(session.id)
 
 
-def test_default_agent_runs_without_prompts_inside_the_project() -> None:
-    assert "--ask-for-approval never" in DEFAULT_AGENT_COMMAND
-    assert "--sandbox workspace-write" in DEFAULT_AGENT_COMMAND
-    assert "sandbox_workspace_write.network_access=true" in DEFAULT_AGENT_COMMAND
-    assert "features.network_proxy.enabled=true" in DEFAULT_AGENT_COMMAND
-    assert "features.network_proxy.allow_local_binding=true" in DEFAULT_AGENT_COMMAND
-    assert 'domains={ "127.0.0.1" = "allow" }' in DEFAULT_AGENT_COMMAND
-    assert "danger-full-access" not in DEFAULT_AGENT_COMMAND
-    assert "--yolo" not in DEFAULT_AGENT_COMMAND
+def test_default_agent_can_manage_git_and_paths_outside_the_project() -> None:
+    assert "--dangerously-bypass-approvals-and-sandbox" in DEFAULT_AGENT_COMMAND
+    assert "--enable goals" in DEFAULT_AGENT_COMMAND
+    assert "--sandbox workspace-write" not in DEFAULT_AGENT_COMMAND
+    assert "--ask-for-approval" not in DEFAULT_AGENT_COMMAND
 
 
 def test_installed_terminal_uses_the_single_app_address(tmp_path: Path) -> None:

@@ -138,7 +138,7 @@ export default function HomePage({
                 <div><CheckCircle2 size={16} /><span>{latestReview ? `Result trusted: ${latestReview.trust_result}` : "Needs a research review"}</span></div>
                 <strong>{latestReview ? nextStepLabels[latestReview.next_step] : "Chat with the agent about what this means"}</strong>
               </div>
-              {latestApproach && <button className="open-research-link" onClick={() => onOpenResearch(latestApproach.id)}>See this idea and its history <ArrowRight size={14} /></button>}
+              {latestApproach && <button className="open-research-link" onClick={() => onOpenResearch(latestApproach.id)}>See this work and its research path <ArrowRight size={14} /></button>}
             </>
           ) : latestHistorical ? (
             <>

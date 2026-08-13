@@ -27,7 +27,7 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
             for version in imported["rules_versions"]
             if version["id"] == imported["active_rules_version_id"]
         )["rules"]
-        assert imported["policy_schema_version"] == 5
+        assert imported["policy_schema_version"] == 6
         assert [
             rule["id"] for rule in active_rules
             if rule["category"] == "loop" and rule["loop_level"] == "stage"
@@ -58,6 +58,9 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         exact_inputs = next(rule for rule in active_rules if rule["id"] == "plan-exact-inputs")
         assert exact_inputs["loop_step_ids"] == ["loop-create-plan"]
         assert exact_inputs["source_label"] == "delta-research · PLAN Resources"
+        continuous = next(rule for rule in active_rules if rule["id"] == "continuous-research")
+        assert continuous["enabled"] is True
+        assert "without asking" in continuous["instruction"]
         policy_file = Path(imported["policy_file"])
         loop_file = Path(imported["loop_file"])
         assert policy_file == project / ".delta-loop" / "POLICY.md"
@@ -85,6 +88,8 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         assert "Initial default came from" not in loop_text
         assert "## Delta Loop Policy" in loop_text
         assert "DELTA_LOOP_WORKSPACE_ID" in loop_text
+        assert "Do not stop for ordinary scientific choices" in loop_text
+        assert "No Git rule is enabled. Do not commit or push; keep researching" in loop_text
 
         patch_response = client.patch(
             f"/api/workspaces/{workspace_id}/nodes/{approach['id']}",
@@ -496,6 +501,110 @@ def test_research_map_supports_multiple_questions_and_cross_links(tmp_path: Path
         assert len(removed["research_links"]) == len(snapshot["research_links"]) - 1
 
 
+def test_research_map_supports_reviews_findings_and_continuing_paths(tmp_path: Path) -> None:
+    project = tmp_path / "research-trace"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    app = create_app(tmp_path / "loop-data.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/import", json={"path": str(project)}).json()
+        workspace_id = workspace["id"]
+        question = next(node for node in workspace["nodes"] if node["kind"] == "question")
+
+        with_review = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "work",
+                "work_kind": "literature-review",
+                "text": "Review evidence for representation limits",
+                "summary": "Find what is established before choosing a mechanism.",
+                "parent_id": question["id"],
+            },
+        ).json()
+        review = next(node for node in with_review["nodes"] if node["title"].startswith("Review evidence"))
+        assert review["kind"] == "approach"
+        assert review["next_work_kind"] == "literature-review"
+
+        with_idea = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "idea",
+                "text": "The representation discards task structure",
+                "parent_id": review["id"],
+                "relationship": "informs",
+            },
+        ).json()
+        idea = next(node for node in with_idea["nodes"] if node["title"].startswith("The representation discards"))
+        assert idea["parent_id"] == review["id"]
+
+        with_test = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "work",
+                "work_kind": "quick-test",
+                "text": "Compare matched representations",
+                "parent_id": idea["id"],
+                "relationship": "tests",
+            },
+        ).json()
+        test = next(node for node in with_test["nodes"] if node["title"] == "Compare matched representations")
+
+        with_finding = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "finding",
+                "text": "Only structured inputs improve transfer",
+                "summary": "The difference survives the matched control but needs replication.",
+                "parent_id": test["id"],
+            },
+        ).json()
+        finding = next(node for node in with_finding["nodes"] if node["kind"] == "finding")
+        assert any(
+            link["source_id"] == test["id"]
+            and link["target_id"] == finding["id"]
+            and link["relationship"] == "produces"
+            for link in with_finding["research_links"]
+        )
+
+        revised = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "idea",
+                "text": "Structure matters only under transfer",
+                "parent_id": finding["id"],
+                "relationship": "revises",
+            },
+        ).json()
+        revised_idea = next(node for node in revised["nodes"] if node["title"].startswith("Structure matters"))
+        assert revised_idea["parent_id"] == finding["id"]
+        revised_links = [
+            link for link in revised["research_links"]
+            if link["source_id"] == finding["id"] and link["target_id"] == revised_idea["id"]
+        ]
+        assert len(revised_links) == 1
+        assert revised_links[0]["relationship"] == "revises"
+
+        alternative = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "work",
+                "text": "Try a different matched control",
+                "parent_id": test["id"],
+                "relationship": "leads-to",
+            },
+        ).json()
+        second_test = next(node for node in alternative["nodes"] if node["title"].startswith("Try a different"))
+        assert second_test["parent_id"] == test["id"]
+
+        circular = client.patch(
+            f"/api/workspaces/{workspace_id}/nodes/{review['id']}",
+            json={"parent_id": revised_idea["id"], "reason": "This should be rejected."},
+        )
+        assert circular.status_code == 422
+        assert "circular" in circular.json()["detail"]
+
+
 def test_plan_run_and_review_flow(tmp_path: Path) -> None:
     project = tmp_path / "research"
     project.mkdir()
@@ -673,6 +782,32 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
         if version["id"] == old_workspace["active_rules_version_id"]
     )
     old_active["version"] = 2
+    old_active["rules"] = [
+        rule for rule in old_active["rules"] if rule["id"] != "continuous-research"
+    ]
+    legacy_rules = {rule["id"]: rule for rule in old_active["rules"]}
+    legacy_rules["loop-run-worker"]["instruction"] = (
+        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, "
+        "debug, plot, and report within that scope, and must stop for blockers or changes that require approval."
+    )
+    legacy_rules["loop-finish-cycle"]["instruction"] = (
+        "Follow the active Git and publishing rules, then check the recorded stop conditions. If no "
+        "condition applies, continue to the next cycle in the same supervisor session."
+    )
+    legacy_rules["ask-before-full-study"].update({
+        "title": "Ask before a full study",
+        "instruction": "Stop and ask the researcher before moving from a small or confirming test into a full study.",
+        "when": "Before starting a full study",
+    })
+    legacy_rules["keep-main-question"].update({
+        "title": "Do not change the main question",
+        "instruction": "Do not change the main research question, the main comparison, or the measurement without stopping and asking the researcher.",
+        "when": "Before changing the question, main comparison, or measurement",
+    })
+    legacy_rules["protect-project-files"]["instruction"] = (
+        "Only the supervisor may update STATE.md after checking a result. Workers must not modify it, "
+        "and the agent must not accept a scientific conclusion on the researcher's behalf."
+    )
     for rule in old_active["rules"]:
         rule.pop("category", None)
         rule.pop("when", None)
@@ -697,12 +832,16 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
         for version in upgraded["rules_versions"]
         if version["id"] == upgraded["active_rules_version_id"]
     )
-    assert upgraded["policy_schema_version"] == 5
+    assert upgraded["policy_schema_version"] == 6
     assert active["version"] == 3
     assert any(rule["id"] == "lab-specific-rule" for rule in active["rules"])
     assert any(rule["category"] == "loop" for rule in active["rules"])
     assert any(rule["category"] == "checkpoint" for rule in active["rules"])
     assert any(rule["id"] == "plan-exact-inputs" for rule in active["rules"])
+    assert any(rule["id"] == "continuous-research" for rule in active["rules"])
+    full_study = next(rule for rule in active["rules"] if rule["id"] == "ask-before-full-study")
+    assert full_study["title"] == "Promote useful signals to a full study"
+    assert "continue without waiting" in full_study["instruction"]
 
 
 def test_project_can_keep_multiple_research_terminals_running(tmp_path: Path, monkeypatch) -> None:

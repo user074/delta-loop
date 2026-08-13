@@ -51,10 +51,10 @@ This table is the product requirements document for the POC. A proposed feature 
 | Detailed audit trail | `PLAN.md`, `REPORT.md`, `RUNS/`, logs, metrics, plots, and Git history preserve details. | Details are available, but reconstructing the important story requires opening many files. | Keep details as the audit layer; add a PI briefing and drill-down links rather than replacing the source artifacts. |
 | Human-facing summary | `SYNTHESIS.md` provides a narrative summary. | Better than raw reports, but still a static text projection with weak navigation and no control. | Render a visual briefing organized around conceptual changes, surprises, failures, decisions, and resource allocation. |
 | Starting setup | `delta-research` uses `INIT.md` to inspect the project, interview the researcher, verify the environment, agree on permissions, ground seed hypotheses in literature, and create `STATE.md`, `SYNTHESIS.md`, `INFRA.md`, and research folders. | Constrained agents with concrete code, data, libraries, and baselines are much more effective than an unconstrained research prompt. The old Markdown-only setup is hard to inspect or revise, and a shallow one-pass scan misses important prior work and project structure. | Make this a Codex-led, researcher-approved starting review in Delta Loop. Inspect local or remote code read-only; propose high-level questions, a few mid-level ideas, and concrete experiments; record prior work and reusable inputs; require real compute and Git checks; agree on success, stopping, budget, permissions, and constraints; then generate the initial research files without overwriting existing `INFRA.md` or `SYNTHESIS.md`. Save the approved starting setup as structured state and `.delta-loop/INITIALIZATION.md`, and show it on Home. |
-| Research planning | The supervisor selects a high-value delta and writes a detailed plan. | The agent can propose plausible experiments that do not match the researcher's intended ablation, comparison, metric, or scientific taste. | Put a persistent human-supervisor refinement phase before delegation. The researcher approves structured changes to objective, controls, exclusions, and escalation rules. |
+| Research planning | The supervisor selects a high-value delta and writes a detailed plan. | The agent can propose plausible experiments that do not match the researcher's intended ablation, comparison, metric, or scientific taste, but requiring approval for every plan leaves unattended research idle. | Let the researcher encode objective, controls, exclusions, taste, success, and hard stop rules before the run. During a continuous run, the supervisor makes and records plan-level choices under that policy without waiting between cycles. |
 | Research protocol | Delta provides a common loop and package conventions. | Researchers differ in how they implement, ablate, and escalate experiments. One researcher may prefer the cheapest discriminating probe first and do a full investigation only after seeing signal; another may require replication or a complete benchmark before branching. | Import the Delta cycle as ordered policy steps, then let researchers edit those steps and add selectable investigation profiles without rewriting a long Markdown prompt. |
 | Plan mutability | Plans are durable and increasingly constrained by templates. | Changing or adding rules during work is cumbersome and can be lost in conversation context. | Make the loop itself and its project-, idea-, and package-level rules editable through checked versions. Sealed packages retain the version they received. |
-| Autonomy | The loop can choose the next frontier item and continue until an interrupt boundary. | Broad autonomy tends to generate merely defensible next work, not necessarily the work the researcher wants. | Default to human-directed packages. Allow autonomy only inside a sealed package. Keep autonomous frontier selection as an optional future policy. |
+| Autonomy | The loop can choose the next frontier item and continue until an interrupt boundary. | Approval boundaries still stop the supervisor after a plan, result, ambiguous choice, or proposed larger study. If the researcher is away, useful progress ends. | **Start research** creates a durable Codex goal. The supervisor chooses, runs, reviews, records, and begins the next evidence-producing cycle without routine approval. It uses the smallest discriminating test when uncertain and redirects when one path is blocked. It stops only at saved success, stop, compute, budget, prohibition, access, or no-useful-work boundaries. |
 | Supervisor interaction | The terminal agent acts as supervisor and spawns workers. | One long conversation is high bandwidth and natural, but planning, execution, and delegation become entangled. | Keep a persistent interactive supervisor terminal, but make it attachable from the UI and scope it to the selected direction, approach, or package. Give it a file/CLI protocol for proposing package and state changes. |
 | Worker handoff | A worker receives a plan and returns a report. | This is valuable, but subagent ownership and intermediate decisions are often opaque. | Make the sealed work package and attempt first-class. Show exact scope, worker, status, deviations, result, and escalation without exposing every private reasoning token. |
 | Parallelism | One supervisor may spawn subagents, often sequentially or opaquely. | Terminal use encourages one primary agent and sequential tasks even when independent analyses could run in parallel. | Let the researcher explicitly seal, queue, and launch up to two independent packages. Parallelism is package-based, not an invisible subagent tree. |
@@ -63,6 +63,7 @@ This table is the product requirements document for the POC. A proposed feature 
 | Promise versus evidence | Confidence and frontier rank partially mix scientific support with what deserves attention next. | A weakly supported direction may still be promising; a well-supported result may have low priority. | Display three separate signals: activity status, human-rated promise/priority, and evidence strength. Never infer one from another. |
 | Review semantics | A report proposes a verdict and belief update. | Method validity, observed result, scientific interpretation, and code quality are different judgments. | Separate execution review, observation acceptance, interpretation, belief update, and optional code integration. |
 | Terminal workflow | The existing system works directly in the repository through agent tools and shell commands. | The terminal remains best for debugging, code inspection, commands, SLURM, and interactive collaboration, but it is visually disconnected from the research arc. | Make terminal sessions first-class and link them to directions, approaches, packages, and attempts. Clicking a node opens or reattaches its session; the same session can be attached from the browser or a local/VS Code terminal. |
+| Codex file and Git access | A managed Codex chat can be started without command-by-command approval while still using a project-only filesystem sandbox. | The project-only sandbox cannot write protected Git metadata or reach every SSH, environment, and remote-project path needed for real research work. Codex can discuss Git policy but cannot carry out an approved commit. | Start managed Codex chats with full machine access so they can work in the actual local or remote repository. Keep this technical access separate from behavioral permission: enabled Git policy decides when Codex may stage, commit, or push, and push remains a separate choice. Allow deployments to replace the launch command when a stricter external boundary is required. |
 | Compute location | Research code may live on a workstation or a remote GPU server. `delta-research` records infrastructure and follows a probe-then-interview setup: commands reveal hardware and software facts, while the researcher supplies storage policy, appropriate resources, and cluster or lab conventions. | On a server without SLURM, the researcher wants Delta Loop to remain local while approved commands run remotely. The agent must not guess the host, project path, environment, GPUs, storage policy, or safe concurrency, and the researcher should not have to manually transcribe everything into a form. | Make agent-led setup the main path. Run one bounded read-only probe; show detected facts separately from human choices; ask one short round at a time about the environment, storage, GPU and concurrency limits, login-node restrictions, Git, data, and lab rules; save only after confirmation; then validate the exact setup. Freeze the chosen location into every attempt, launch a persistent remote process, reconnect to status and logs, and show the remote output path. Keep manual fields as an advanced fallback and never store SSH credentials. Provide a safe reset that clears the saved location and inspection while preserving research files, run history, and results. |
 | Git and GitHub | `delta-research` can ask an agent to inspect, commit, and sometimes push reviewed work, while IDE Git tools remain available. | For remote work, Delta Loop's local notes folder looks like a project folder but is not the actual research repository. Without a visible rule, an agent may use the wrong folder or the researcher must manually remember when to commit and push. | Put Git controls on Compute. Show the actual local or SSH repository separately from Delta Loop's control folder. Provide a read-only status check for branch, remote, upstream, changed paths, and cached ahead/behind counts. Keep commit, branch, result-record, and push behavior in checked policy rules. Codex discusses and saves those rules; commit permission never implies push permission. The finish-cycle step applies enabled Git rules to the actual compute project. |
 | Web awareness | `loopit` shows live activity, state, next work, history, steering, and durable runtime records. | The awareness and observability are useful. Seeing what is happening and what comes next lowers uncertainty. | Reuse these interaction lessons in a smaller research dashboard: current package, current operation, latest evidence, next checkpoint, decisions needed, and resource use. |
@@ -85,20 +86,19 @@ researcher's interactive agent, terminal, experiment tracker, or scientific judg
 
 The human owns:
 
-- Research questions and conceptual framing
-- Which arcs and approaches deserve attention
-- Experimental contrasts, important controls, and interpretation standards
-- Allocation of time and compute
-- Material changes in direction
-- Acceptance of observations and belief updates
+- The saved research questions, conceptual framing, and project prohibitions
+- Research taste: preferred implementation, controls, replication, literature, and escalation policies
+- Success, stopping, time, compute, Git, and resource limits
+- Asynchronous steering, correction, pause, resume, and termination when the researcher is present
 
-The supervisor helps the human:
+The continuous supervisor owns work inside those saved boundaries:
 
-- Turn fuzzy intent into explicit work packages
-- Find missing controls, ambiguity, and hidden assumptions
-- Decompose independent work
-- Maintain continuity across packages and results
-- Prepare conceptual summaries and decision surfaces
+- Choose the next useful question or approach and turn it into an explicit work package
+- Resolve ordinary ambiguity with the cheapest useful test instead of asking
+- Run, debug, review, and redirect work when a path fails
+- Maintain continuity, working interpretations, uncertainty, and the visual research map
+- Start the next cycle without waiting for the researcher
+- Prepare conceptual summaries so the researcher can steer later
 
 Workers own bounded execution:
 
@@ -118,7 +118,8 @@ Workers own bounded execution:
 | H5 | Package-level parallelism increases useful throughput without hiding ownership or scientific decisions. | Two independent packages can run concurrently and return separately reviewable results without corrupting state or silently changing scope. |
 | H6 | A visual research map linked directly to persistent terminals makes switching among directions easier without weakening interactive collaboration. | The researcher can capture a lightweight idea, click into an approach, resume its terminal context, inspect what worked or failed, and switch back without a fresh model session or manual context reconstruction. |
 | H7 | Researchers can safely evolve the Delta harness when rules, templates, or delegation policies prove inadequate. | A researcher can change one rule, see every affected rendered prompt and package, pass deterministic and fixed-scenario tests, canary it on one package, observe whether it fired, and roll back without asking an agent to rewrite the harness. |
-| H8 | Explicit researcher-specific investigation protocols produce better-scoped work than one universal experimental loop. | The researcher can encode a fast-signal-first protocol, apply it to one approach, run a minimal probe whose conclusions are visibly limited, and make an explicit promote, repeat, redirect, or stop decision before a full investigation. |
+| H8 | Explicit researcher-specific investigation protocols produce better-scoped work than one universal experimental loop. | The researcher can encode a fast-signal-first protocol, apply it to one approach, and let the supervisor make and record evidence-based promote, repeat, redirect, or park decisions without silently exceeding the saved limits. |
+| H9 | A durable continuous goal can advance research while the researcher is away without becoming unbounded. | The supervisor completes multiple evidence-producing cycles without routine approval, records why it chose and promoted work, stays inside saved limits, and stops only for a concrete hard condition. |
 
 ## 4. Product boundary
 
@@ -143,7 +144,7 @@ Workers own bounded execution:
 - A general task manager or agent operating system
 - A replacement for Codex, Claude Code, VS Code, or the terminal
 - A chat form that launches a new coding-agent process for every message
-- A fully autonomous scientist
+- An unbounded scientist with no saved objective, success condition, resource limit, or stop rule
 - A new experiment tracker competing with W&B
 - A free-form research knowledge graph
 - A universal scientific method or a hard-coded experiment sequence that every researcher must follow
@@ -328,32 +329,33 @@ state cannot answer.
 
 ## 6. The two loops
 
-Delta must keep the human loop and execution loop separate.
+Delta must keep human policy and steering distinct from the continuous research loop. The researcher does not have
+to sit between every cycle.
 
 ```mermaid
 flowchart LR
-    subgraph PI["Human / PI loop"]
-        Q["Question"] --> A["Choose arc and approach"]
-        A --> P["Refine and seal package"]
-        R["Review observation and interpretation"] --> D["Allocate or redirect"]
-        D --> A
+    subgraph PI["Human / PI policy and steering"]
+        Q["Question and research taste"] --> A["Success, stop, compute, and Git rules"]
+        A --> P["Start, steer, pause, or stop"]
     end
 
-    subgraph EX["Bounded execution loop"]
-        P --> E["Implement / analyze"]
+    subgraph EX["Continuous research loop"]
+        P --> C["Choose smallest useful test"]
+        C --> E["Implement / analyze"]
         E --> X["Run / debug"]
-        X --> V["Verify / report"]
-        V --> R
+        X --> V["Verify / record"]
+        V --> C
     end
 ```
 
-The execution loop may run for a long time and recover routine failures. It may not silently take ownership of
-the PI loop by changing the research question, primary comparison, dataset family, evaluation definition, or
-interpretive claim.
+The continuous loop may run for a long time, recover routine failures, choose comparisons and measurements, record
+working interpretations, promote promising results, and redirect among eligible paths. It keeps the saved main
+question stable; evidence for a different framing becomes a connected question for later review rather than a
+reason to stop unattended work.
 
-A selected research protocol guides how packages move between the two loops, but it is not an autonomous
-workflow. It may recommend a cheap probe, replication, full investigation, or stop decision; the researcher owns
-the promotion gate whenever the next stage materially increases scientific claims, cost, or scope.
+A selected research protocol guides automatic movement between cheap probes, replication, confirmation, full
+investigation, redirect, and stop. Promotion is allowed when evidence and saved resource limits justify it. A
+project-specific hard rule can still prohibit a transition.
 
 ## 7. Minimal product surfaces
 
@@ -382,8 +384,8 @@ a concise PI update: claims and decisions first, evidence one click deeper, raw 
 
 ### 7.2 Research
 
-The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. It
-keeps three readable abstraction levels without forcing the research into one tree:
+The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. Setup
+starts with three readable abstraction levels, but the active research trace is not restricted to that hierarchy:
 
 ```text
 One or more research questions
@@ -392,7 +394,9 @@ One or more research questions
 ```
 
 An idea is a meaningful explanation, mechanism, or strategic way to attack one or more research questions. An
-experiment is one concrete implementation, comparison, dataset, ablation, or measurement. Each node can start with
+experiment is one concrete implementation, comparison, dataset, ablation, or measurement. Work may instead be a
+literature review, replication, analysis, or research-engineering task. Work can produce a durable finding, and that
+finding can revise an existing idea, create a follow-up idea, or motivate different work. Each item can start with
 only a title and a short note; Delta should not force the researcher to fill a large form before preserving it.
 
 The graph supports a small set of typed relationships:
@@ -400,23 +404,33 @@ The graph supports a small set of typed relationships:
 ```text
 explores          Question → Idea
 tests             Idea → Experiment
+produces          Work → Finding
+revises           Finding → changed Question or Idea
+leads-to          Any research item → its next main step
+alternative-to    Any research item ↔ a competing path
 supports          Any research item → another research item
 challenges        Any research item → another research item
 informs           Any research item → another research item
-depends_on        Any research item → prerequisite research item
+depends-on        Any research item → prerequisite research item
 related           Any research item ↔ another research item
 ```
 
-Questions, ideas, and experiments occupy stable visual columns. Existing imports retain one compatibility parent,
-but typed links are the source of the visible research relationships. An idea can explore several questions and an
-experiment can test or inform several ideas without being duplicated.
+Each item keeps one main placement so the page can draw a readable left-to-right research trace. Additional typed
+links are lighter cross-connections. Columns represent successive steps rather than fixed item types, so the trace
+can extend through review → idea → experiment → finding → revised idea → follow-up work. Existing imports retain
+their compatibility parent and render without migration. Semantic zoom switches among an overview of questions and
+ideas, the complete working trace, and detailed evidence/run cards. Selecting an item emphasizes its incoming path,
+following branch, and immediate cross-links; the researcher can temporarily hide later steps from any selected item.
 
 The graph is an interaction surface, not only a report. The map header can start a new-question conversation.
-Selecting a question exposes Add idea; selecting an idea exposes Add experiment; and every item exposes Explore,
-Revise, and Connect. These actions open Codex with the selected item, current graph, and intended operation already
-in context. Structural changes remain conversational and require approval rather than becoming a dense form editor.
+Every item exposes Continue from here, Literature review, Chat, Revise, and Connect. Questions add ideas, ideas add
+experiments, work records findings, and work or findings create follow-up ideas. These actions open Codex with the
+selected item, current graph, and intended operation already in context. Human-initiated structural edits remain
+conversational and require confirmation rather than becoming a dense form editor. During a continuous run, the
+supervisor may append findings, links, working interpretations, and status updates allowed by the active policy
+without pausing for approval; every change remains auditable.
 
-A direction or approach records:
+A research-map item records the applicable parts of:
 
 ```text
 title
@@ -591,12 +605,12 @@ For the user's default fast-signal-first profile:
 
 | Stage | Purpose | Typical scope | Permitted conclusion | Gate |
 |---|---|---|---|---|
-| Minimal probe | Learn whether the predicted directional difference exists at all | Simplest reusable code path, small slice or one representative setting, sanity baseline, strict budget | Exploratory signal, no signal, invalid, or ambiguous; never a final claim | Human chooses confirm, revise, redirect, or stop |
-| Signal confirmation | Check that the first difference is not an obvious accident or implementation artifact | Repeat, matched control, essential confound check, limited additional settings | Provisional evidence suitable for allocating more effort | Human chooses full investigation, another confirmation, or stop |
-| Full investigation | Establish magnitude, boundary conditions, robustness, and interpretation | Full data/settings, planned ablations, multiple seeds where meaningful, failure analysis | Evidence eligible for formal claim review | Normal evidence and interpretation review |
+| Minimal probe | Learn whether the predicted directional difference exists at all | Simplest reusable code path, small slice or one representative setting, sanity baseline, strict budget | Exploratory signal, no signal, invalid, or ambiguous; never a final claim | Agent chooses confirm, revise, redirect, or park from the checked result |
+| Signal confirmation | Check that the first difference is not an obvious accident or implementation artifact | Repeat, matched control, essential confound check, limited additional settings | Provisional evidence suitable for allocating more effort | Agent chooses full investigation, another confirmation, changed test, or redirect within saved limits |
+| Full investigation | Establish magnitude, boundary conditions, robustness, and interpretation | Full data/settings, planned ablations, multiple seeds where meaningful, failure analysis | Evidence eligible for formal claim review | Agent records the checked evidence, limits, working conclusion, and next useful path |
 
 Each profile defines stage names, recommended package template, defaults, budgets, required controls, completion
-signals, allowed next stages, and which transition requires human approval. It may supply defaults but cannot
+signals, allowed next stages, and which transition is prohibited or requires the unattended run to stop. It may supply defaults but cannot
 silently weaken a project prohibition, deterministic safety rule, provenance requirement, or a sealed package.
 
 Editing from the UI, CLI, or profile file creates a new immutable profile version and shows how representative
@@ -1306,10 +1320,11 @@ The POC must run against one real research repository and one real unresolved qu
 10. Explicitly name checkpoint, dataset slice, existing decomposition code, metric, sanity baseline, strict
     budget, predictions, prohibited changes, and the limited conclusions this probe can support.
 11. Seal and launch the probe with immutable protocol, policy, and effective-harness snapshots.
-12. Review execution validity and classify the observation as signal, no signal, invalid, or ambiguous.
-13. Make an explicit promote, repeat, revise, redirect, or stop decision. A valid signal may create a full
-    investigation package; it does not launch one automatically.
-14. If promoted, refine the full investigation with matched controls, planned ablations, robustness settings,
+12. Let the supervisor review execution validity and classify the observation as signal, no signal, invalid, or ambiguous.
+13. Verify that it records an explicit promote, repeat, revise, redirect, or park decision and immediately follows
+    that decision without waiting for routine approval. A valid signal may automatically create and launch a full
+    investigation package when the saved policy and resource limits justify it.
+14. If promoted, let the supervisor refine the full investigation with matched controls, planned ablations, robustness settings,
     resource budget, and claim-review criteria.
 15. Launch one independent research-support engineering package only if it is genuinely useful.
 16. Observe work without requiring the agents to narrate continuously; open worker output and harness rule traces
@@ -1343,10 +1358,10 @@ modifying or migrating existing files.
 **Goal:** Represent the researcher's conceptual layer, make it directly navigable into persistent terminal work,
 and expose editable rules.
 
-- Add one-line lab-note capture and explicit promotion into questions, ideas, or experiments
-- Add multiple questions, ideas, and experiments with independent status, promise, evidence strength, history,
+- Add one-line lab-note capture and explicit promotion into questions, ideas, work, or findings
+- Add multiple questions, ideas, work items, and findings with independent status, promise, evidence strength, history,
   allocation, and revisit triggers
-- Add typed question-to-idea, idea-to-experiment, support, challenge, information, dependency, and related links
+- Add typed exploration, testing, production, revision, continuation, alternative, support, challenge, information, dependency, and related links
 - Link existing claims, reports, and runs to approaches
 - Implement the local PTY session service, browser terminal dock, and `delta terminal attach`
 - Implement a thin VS Code extension that publishes active editor/tab/selection and terminal shell-integration

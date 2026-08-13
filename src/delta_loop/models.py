@@ -6,10 +6,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-NodeKind = Literal["question", "direction", "approach"]
+NodeKind = Literal["question", "direction", "approach", "finding"]
 ResearchRelation = Literal[
     "explores",
     "tests",
+    "produces",
+    "revises",
+    "leads-to",
+    "alternative-to",
     "supports",
     "challenges",
     "informs",
@@ -160,7 +164,7 @@ class ProtocolDecision(BaseModel):
 class QuickNote(BaseModel):
     id: str
     text: str
-    kind: Literal["idea", "way-to-test", "note", "question"] = "idea"
+    kind: Literal["idea", "way-to-test", "work", "finding", "note", "question"] = "idea"
     parent_id: str | None = None
     created_at: str = Field(default_factory=now_iso)
 
@@ -557,9 +561,11 @@ class ProtocolDecisionRequest(BaseModel):
 
 class QuickNoteRequest(BaseModel):
     text: str
-    kind: Literal["idea", "way-to-test", "note", "question"] = "idea"
+    kind: Literal["idea", "way-to-test", "work", "finding", "note", "question"] = "idea"
     parent_id: str | None = None
     summary: str = ""
+    work_kind: WorkKind = "quick-test"
+    relationship: ResearchRelation | None = None
 
 
 class WorkPackageRequest(BaseModel):
