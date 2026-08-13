@@ -58,7 +58,7 @@ function additionalChatPrompt(currentPage: AppPage, focus: ResearchNode | null) 
   ].join("\n\n");
 }
 
-type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "elsewhere" | "ended";
+type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "ended";
 
 function TerminalView({
   session,
@@ -130,22 +130,24 @@ function TerminalView({
     let readyForInput = false;
 
     const connect = () => {
-      if (disposed) return;
+      if (disposed || document.visibilityState === "hidden") return;
+      if (socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN) return;
       readyForInput = false;
       onConnectionChange(session.id, retries ? "reconnecting" : "connecting");
       fit.fit();
       socket = new WebSocket(
         `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws?columns=${terminal.cols}&rows=${terminal.rows}`,
       );
-      socket.binaryType = "arraybuffer";
-      socket.onopen = () => {
+      const connectedSocket = socket;
+      connectedSocket.binaryType = "arraybuffer";
+      connectedSocket.onopen = () => {
         if (retries) {
           terminal.reset();
           decoder = new TextDecoder();
           fit.fit();
         }
       };
-      socket.onmessage = (event) => {
+      connectedSocket.onmessage = (event) => {
         if (typeof event.data === "string") {
           try {
             const message = JSON.parse(event.data) as { type?: string };
@@ -155,7 +157,7 @@ function TerminalView({
               // when xterm's earlier resize event occurred before the socket
               // was ready.
               fit.fit();
-              socket?.send(JSON.stringify({
+              connectedSocket.send(JSON.stringify({
                 type: "resize",
                 columns: terminal.cols,
                 rows: terminal.rows,
@@ -177,13 +179,9 @@ function TerminalView({
         terminal.write(output);
         if (output.includes("[terminal ended]")) terminalEnded = true;
       };
-      socket.onclose = (event) => {
+      connectedSocket.onclose = (event) => {
         if (disposed) return;
-        if (event.code === 4410) {
-          terminal.writeln("\r\nThis terminal moved to another browser view. Hide and show it here to take control again.");
-          onConnectionChange(session.id, "elsewhere");
-          return;
-        }
+        if (socket === connectedSocket) socket = null;
         if (terminalEnded || event.code === 4404) {
           if (event.code === 4404) terminal.writeln("\r\nThis terminal was not found after the server restarted.");
           onConnectionChange(session.id, "ended");
@@ -201,6 +199,26 @@ function TerminalView({
       };
     };
     connect();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (retryTimer !== null) {
+          window.clearTimeout(retryTimer);
+          retryTimer = null;
+        }
+        readyForInput = false;
+        if (socket) {
+          socket.onclose = null;
+          socket.onmessage = null;
+          socket.close(1000);
+          socket = null;
+        }
+        return;
+      }
+      retries = 0;
+      reconnectMessageShown = false;
+      connect();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     const input = terminal.onData((data) => {
       if (readyForInput && socket?.readyState === WebSocket.OPEN) {
         if (readingEarlier.current) {
@@ -286,6 +304,7 @@ function TerminalView({
     observer.observe(containerRef.current);
     return () => {
       disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       observer.disconnect();
       input.dispose();

@@ -9,8 +9,6 @@ from delta_loop.terminal import DEFAULT_AGENT_COMMAND, TerminalManager
 def test_terminal_survives_detach_and_accepts_input(tmp_path: Path) -> None:
     manager = TerminalManager()
     session = manager.create("workspace", str(tmp_path), "idea-1")
-    first_connection = manager.acquire_input(session.id)
-    assert manager.owns_input(session.id, first_connection)
     manager.write(
         session.id,
         b"if command -v delta >/dev/null; then printf 'delta-command-ok\\n'; fi; "
@@ -24,14 +22,8 @@ def test_terminal_survives_detach_and_accepts_input(tmp_path: Path) -> None:
             break
         time.sleep(0.05)
 
-    second_connection = manager.acquire_input(session.id)
-    assert not manager.owns_input(session.id, first_connection)
-    assert manager.owns_input(session.id, second_connection)
-    manager.release_input(session.id, first_connection)
-    assert manager.owns_input(session.id, second_connection)
     assert b"terminal-ok" in output
     assert b"delta-command-ok" in output
-    manager.release_input(session.id, second_connection)
     manager.close(session.id)
 
 

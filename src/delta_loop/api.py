@@ -1077,7 +1077,6 @@ def create_app(
         if not terminals.get(session_id):
             await websocket.close(code=4404, reason="Terminal not found.")
             return
-        input_generation = terminals.acquire_input(session_id)
 
         try:
             columns = int(websocket.query_params.get("columns", "100"))
@@ -1092,22 +1091,15 @@ def create_app(
                 rows,
             )
         except (TerminalFailure, OSError, RuntimeError):
-            terminals.release_input(session_id, input_generation)
             await websocket.close(code=1011, reason="The terminal screen could not be prepared.")
             return
 
         async def send_output() -> None:
             nonlocal cursor
-            if not terminals.owns_input(session_id, input_generation):
-                await websocket.close(code=4410, reason="Terminal opened in another browser view.")
-                return
             if initial_output:
                 await websocket.send_bytes(initial_output)
             await websocket.send_text(json.dumps({"type": "ready"}))
             while True:
-                if not terminals.owns_input(session_id, input_generation):
-                    await websocket.close(code=4410, reason="Terminal opened in another browser view.")
-                    return
                 data, cursor = terminals.output_since(session_id, cursor)
                 if data:
                     await websocket.send_bytes(data)
@@ -1118,30 +1110,34 @@ def create_app(
                     await asyncio.sleep(0.03)
 
         async def receive_input() -> None:
+            nonlocal columns, rows
             while True:
                 message = await websocket.receive()
                 if message.get("type") == "websocket.disconnect":
                     return
-                if not terminals.owns_input(session_id, input_generation):
-                    return
                 data = message.get("bytes")
                 if data is not None:
+                    await asyncio.to_thread(terminals.resize, session_id, columns, rows)
                     terminals.write(session_id, data)
                     continue
                 text = message.get("text") or ""
                 try:
                     payload = json.loads(text)
                 except json.JSONDecodeError:
+                    await asyncio.to_thread(terminals.resize, session_id, columns, rows)
                     terminals.write(session_id, text.encode())
                     continue
                 if payload.get("type") == "resize":
+                    columns = int(payload.get("columns", 100))
+                    rows = int(payload.get("rows", 28))
                     await asyncio.to_thread(
                         terminals.resize,
                         session_id,
-                        int(payload.get("columns", 100)),
-                        int(payload.get("rows", 28)),
+                        columns,
+                        rows,
                     )
                 elif payload.get("type") == "input":
+                    await asyncio.to_thread(terminals.resize, session_id, columns, rows)
                     terminals.write(session_id, str(payload.get("data", "")).encode())
                 elif payload.get("type") == "latest":
                     await asyncio.to_thread(terminals.latest, session_id)
@@ -1164,8 +1160,6 @@ def create_app(
                 task.result()
         except (WebSocketDisconnect, TerminalFailure, RuntimeError):
             pass
-        finally:
-            terminals.release_input(session_id, input_generation)
 
     if serve_web:
         built_web = Path(
