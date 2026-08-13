@@ -31,6 +31,7 @@ DEFAULT_AGENT_COMMAND = (
 
 TRANSCRIPT_LIMIT_BYTES = 16 * 1024 * 1024
 TRANSCRIPT_TRIMMED_MESSAGE = b"\x1b[0m\r\n[Older terminal output was trimmed.]\r\n"
+TERMINAL_RESET = b"\x1bc"
 
 
 class TerminalFailure(ValueError):
@@ -207,12 +208,82 @@ class TerminalManager:
     def transcript(self, session_id: str) -> tuple[bytes, int]:
         record = self._record(session_id)
         if record.tmux_session and self._tmux_alive(record.tmux_session):
-            with record.lock:
-                cursor = record.next_sequence
             captured = self._capture_tmux(record.tmux_session)
             if captured:
+                with record.lock:
+                    cursor = record.next_sequence
                 return captured, cursor
         return record.snapshot()
+
+    def connection_output(
+        self,
+        session_id: str,
+        columns: int,
+        rows: int,
+    ) -> tuple[bytes, int]:
+        """Return a screen state that matches the browser's terminal size.
+
+        A persistent terminal is backed by tmux. Replaying capture-pane text and
+        then appending tmux's ANSI redraw stream corrupts the screen because the
+        two representations do not share a cursor position. Instead, resize the
+        live tmux client, force one real redraw, and send only that ANSI stream.
+        tmux remains the source of scrollback for persistent sessions.
+        """
+        record = self._record(session_id)
+        columns = max(20, min(columns, 500))
+        rows = max(4, min(rows, 200))
+        persistent = bool(record.tmux_session and self._tmux_alive(record.tmux_session))
+        live_screen = persistent or record.info.kind in {"discussion", "research"}
+        if not live_screen:
+            self._set_size(record.master_fd, columns, rows)
+            # Give full-screen programs a brief chance to repaint at the new
+            # width before taking the raw replay snapshot.
+            time.sleep(0.04)
+            return record.snapshot()
+
+        with record.lock:
+            cursor = record.next_sequence
+
+        current_columns, current_rows = self._get_size(record.master_fd)
+        if (current_columns, current_rows) == (columns, rows):
+            # TIOCSWINSZ is not required to signal when the size is unchanged.
+            # A one-column nudge guarantees that tmux emits a complete redraw.
+            temporary_columns = columns - 1 if columns > 20 else columns + 1
+            self._set_size(record.master_fd, temporary_columns, rows)
+        self._set_size(record.master_fd, columns, rows)
+        try:
+            os.killpg(record.process.pid, signal.SIGWINCH)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+        deadline = time.monotonic() + 0.5
+        last_sequence = cursor
+        last_change = time.monotonic()
+        while time.monotonic() < deadline:
+            _, next_sequence = record.output_since(cursor)
+            now = time.monotonic()
+            if next_sequence != last_sequence:
+                last_sequence = next_sequence
+                last_change = now
+            if last_sequence != cursor and now - last_change >= 0.04:
+                break
+            time.sleep(0.01)
+
+        redraw, next_cursor = record.output_since(cursor)
+        if redraw:
+            return TERMINAL_RESET + redraw, next_cursor
+
+        # This should only occur with an unusual tmux build that does not redraw
+        # on SIGWINCH. Keep the fallback internally consistent by advancing the
+        # cursor after capture, so later ANSI frames cannot race the snapshot.
+        captured = (
+            self._capture_tmux(record.tmux_session)
+            if persistent and record.tmux_session
+            else record.snapshot()[0]
+        )
+        with record.lock:
+            next_cursor = record.next_sequence
+        return TERMINAL_RESET + captured, next_cursor
 
     def output_since(self, session_id: str, sequence: int) -> tuple[bytes, int]:
         return self._record(session_id).output_since(sequence)
@@ -235,6 +306,29 @@ class TerminalManager:
             return
         subprocess.run(
             [self._tmux, "send-keys", "-X", "-t", f"{record.tmux_session}:0.0", "cancel"],
+            capture_output=True,
+            check=False,
+            timeout=3,
+        )
+
+    def scroll(self, session_id: str, lines: int) -> None:
+        record = self._record(session_id)
+        if not lines or not record.tmux_session or not self._tmux:
+            return
+        amount = max(1, min(abs(lines), 200))
+        target = f"{record.tmux_session}:0.0"
+        if lines < 0:
+            subprocess.run(
+                [self._tmux, "copy-mode", "-t", target],
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+            command = "scroll-up"
+        else:
+            command = "scroll-down"
+        subprocess.run(
+            [self._tmux, "send-keys", "-X", "-N", str(amount), "-t", target, command],
             capture_output=True,
             check=False,
             timeout=3,
@@ -592,3 +686,13 @@ class TerminalManager:
     def _set_size(master_fd: int, columns: int, rows: int) -> None:
         size = struct.pack("HHHH", max(1, rows), max(1, columns), 0, 0)
         fcntl.ioctl(master_fd, termios.TIOCSWINSZ, size)
+
+    @staticmethod
+    def _get_size(master_fd: int) -> tuple[int, int]:
+        packed = fcntl.ioctl(
+            master_fd,
+            termios.TIOCGWINSZ,
+            struct.pack("HHHH", 0, 0, 0, 0),
+        )
+        rows, columns, _, _ = struct.unpack("HHHH", packed)
+        return columns, rows

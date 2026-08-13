@@ -992,10 +992,28 @@ def create_app(
             await websocket.close(code=4409, reason="This terminal is already open somewhere else.")
             return
 
+        try:
+            columns = int(websocket.query_params.get("columns", "100"))
+            rows = int(websocket.query_params.get("rows", "28"))
+        except ValueError:
+            columns, rows = 100, 28
+        try:
+            initial_output, cursor = await asyncio.to_thread(
+                terminals.connection_output,
+                session_id,
+                columns,
+                rows,
+            )
+        except (TerminalFailure, OSError, RuntimeError):
+            terminals.release_input(session_id)
+            await websocket.close(code=1011, reason="The terminal screen could not be prepared.")
+            return
+
         async def send_output() -> None:
-            transcript, cursor = await asyncio.to_thread(terminals.transcript, session_id)
-            if transcript:
-                await websocket.send_bytes(transcript)
+            nonlocal cursor
+            if initial_output:
+                await websocket.send_bytes(initial_output)
+            await websocket.send_text(json.dumps({"type": "ready"}))
             while True:
                 data, cursor = terminals.output_since(session_id, cursor)
                 if data:
@@ -1031,6 +1049,12 @@ def create_app(
                     terminals.write(session_id, str(payload.get("data", "")).encode())
                 elif payload.get("type") == "latest":
                     await asyncio.to_thread(terminals.latest, session_id)
+                elif payload.get("type") == "scroll":
+                    await asyncio.to_thread(
+                        terminals.scroll,
+                        session_id,
+                        int(payload.get("lines", 0)),
+                    )
 
         sender = asyncio.create_task(send_output())
         receiver = asyncio.create_task(receive_input())
