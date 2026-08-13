@@ -211,7 +211,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .terminal-state { color: #8f8c84; }.terminal-state span { width: 6px; height: 6px; border-radius: 50%; background: #8f8c84; }
 .terminal-state.connected { color: #a9c790; }.terminal-state.connected span { background: #83c697; }
 .terminal-state.connecting, .terminal-state.reconnecting { color: #e0c68b; }.terminal-state.connecting span, .terminal-state.reconnecting span { background: #d6a84e; animation: pulse 1.2s ease-in-out infinite; }
-.terminal-state.elsewhere { color: #d0ae79; }.terminal-state.elsewhere span { background: #bd8242; }
 @keyframes pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 .terminal-controls button { display: flex; align-items: center; gap: 5px; border: 1px solid #4a4a41; border-radius: 4px; background: #35352e; color: #c4c1b8; padding: 4px 7px; cursor: pointer; font: 9px "SFMono-Regular", Consolas, monospace; }
 .terminal-controls button:hover { background: #414138; color: white; }

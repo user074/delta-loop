@@ -55,8 +55,6 @@ class _TerminalRecord:
         self.lock = threading.RLock()
         if replay:
             self.append_output(replay)
-        self.input_generation = 0
-        self.input_owner: int | None = None
 
     def append_output(self, data: bytes) -> None:
         if not data:
@@ -205,25 +203,6 @@ class TerminalManager:
         with self._lock:
             record = self._sessions.get(session_id)
             return record.info if record else None
-
-    def acquire_input(self, session_id: str) -> int:
-        """Give the newest browser connection control of this terminal."""
-        record = self._record(session_id)
-        with record.lock:
-            record.input_generation += 1
-            record.input_owner = record.input_generation
-            return record.input_generation
-
-    def owns_input(self, session_id: str, generation: int) -> bool:
-        record = self._record(session_id)
-        with record.lock:
-            return record.input_owner == generation
-
-    def release_input(self, session_id: str, generation: int) -> None:
-        record = self._record(session_id)
-        with record.lock:
-            if record.input_owner == generation:
-                record.input_owner = None
 
     def read(self, session_id: str) -> bytes:
         record = self._record(session_id)
@@ -591,7 +570,6 @@ class TerminalManager:
             self._wait_tmux_attached(record.tmux_session, process)
             record.process = process
             record.master_fd = master_fd
-            record.input_owner = None
             record.info.status = "active"
         self._start_reader(record)
 
