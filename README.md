@@ -408,6 +408,17 @@ compute until it is resumed. To stop the server and every terminal process it ow
 delta-loop stop
 ```
 
+Run these commands on the machine where Delta Loop itself is running. If the web page is remote, use:
+
+```bash
+ssh YOUR_SERVER '~/.local/bin/delta-loop status'
+ssh YOUR_SERVER '~/.local/bin/delta-loop stop'
+```
+
+Stopping `delta-loop connect`, closing an SSH tunnel, or closing the browser only disconnects your computer from the
+remote page; it does not stop Delta Loop on the server. After `delta-loop stop` reports that it stopped, you can end
+an otherwise empty named wrapper session with `tmux kill-session -t delta-loop` if that session is still listed.
+
 Pressing Ctrl+C in the window that started Delta Loop now has the same full-shutdown behavior. Neither method deletes
 Codex's saved conversation history; `codex resume --all` can reopen a saved chat later.
 

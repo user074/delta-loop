@@ -33,6 +33,44 @@ def test_remote_connection_reuses_a_working_forward(monkeypatch) -> None:
     assert cli._connection_port(4318) == (4318, True)
 
 
+def test_serve_records_process_so_delta_loop_can_stop_it(
+    tmp_path, monkeypatch
+) -> None:
+    import delta_loop.api as api
+    import uvicorn
+
+    registry = tmp_path / "server-4317.json"
+    application = object()
+    events: list[tuple] = []
+    monkeypatch.setattr(cli, "_server_registry_path", lambda _port: registry)
+    monkeypatch.setattr(
+        cli,
+        "_write_server_registry",
+        lambda path, host, port: events.append(("write", path, host, port)),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_remove_server_registry",
+        lambda path, pid: events.append(("remove", path, pid)),
+    )
+    monkeypatch.setattr(api, "create_app", lambda **_kwargs: application)
+    monkeypatch.setattr(
+        uvicorn,
+        "run",
+        lambda app, **kwargs: events.append(("run", app, kwargs)),
+    )
+
+    cli.main(["serve", "--host", "127.0.0.1", "--port", "4317"])
+
+    assert events[0] == ("write", registry, "127.0.0.1", 4317)
+    assert events[1] == (
+        "run",
+        application,
+        {"host": "127.0.0.1", "port": 4317, "reload": False},
+    )
+    assert events[2][0:2] == ("remove", registry)
+
+
 def test_status_distinguishes_live_terminals_from_saved_chats(
     tmp_path, monkeypatch, capsys
 ) -> None:

@@ -26,6 +26,7 @@ function opening(topic: string) {
   return [
     `This Delta Loop chat is about ${topic}.`,
     "Run `delta context` first. Discuss the change; do not start research work unless the researcher asks in this chat.",
+    "Delta Loop already hosts this chat. Never start, restart, install, upgrade, or replace the Delta Loop server, and never run `delta serve` or the `delta-loop` launcher. If `delta context` cannot connect, report the connection problem instead of starting a server.",
   ];
 }
 

@@ -424,12 +424,17 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
         from .api import create_app
 
         public_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
-        uvicorn.run(
-            create_app(api_url=f"http://{public_host}:{args.port}"),
-            host=args.host,
-            port=args.port,
-            reload=False,
-        )
+        registry = _server_registry_path(args.port)
+        _write_server_registry(registry, args.host, args.port)
+        try:
+            uvicorn.run(
+                create_app(api_url=f"http://{public_host}:{args.port}"),
+                host=args.host,
+                port=args.port,
+                reload=False,
+            )
+        finally:
+            _remove_server_registry(registry, os.getpid())
         return
 
     if args.command == "connect":
