@@ -143,6 +143,68 @@ def test_terminal_keeps_output_while_no_browser_is_attached(tmp_path: Path) -> N
     manager.close(session.id)
 
 
+def test_persistent_connection_replays_one_live_redraw_not_plain_capture(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = TerminalManager()
+    session = manager.create("workspace", str(tmp_path), "idea-1")
+    record = manager._sessions[session.id]
+    record.tmux_session = "delta-loop-test"
+    manager._tmux = "/fake/tmux"
+    record.append_output(b"old raw output that must not be replayed")
+
+    monkeypatch.setattr(manager, "_tmux_alive", lambda _name: True)
+    monkeypatch.setattr(manager, "_get_size", lambda _fd: (100, 28))
+    monkeypatch.setattr(os, "killpg", lambda _pid, _signal: None)
+
+    sizes: list[tuple[int, int]] = []
+
+    def resize_with_redraw(_fd: int, columns: int, rows: int) -> None:
+        sizes.append((columns, rows))
+        if (columns, rows) == (84, 24):
+            record.append_output(b"\x1b[2J\x1b[Hclean live screen")
+
+    monkeypatch.setattr(manager, "_set_size", resize_with_redraw)
+
+    output, cursor = manager.connection_output(session.id, 84, 24)
+
+    assert output.startswith(b"\x1bc\x1b[2J\x1b[H")
+    assert b"clean live screen" in output
+    assert b"old raw output" not in output
+    assert sizes[-1] == (84, 24)
+    assert cursor == record.next_sequence
+    record.tmux_session = None
+    manager.close(session.id)
+
+
+def test_agent_connection_forces_a_clean_redraw_without_tmux(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = TerminalManager()
+    session = manager.create("workspace", str(tmp_path), "idea-1", kind="discussion")
+    record = manager._sessions[session.id]
+    record.append_output(b"old frames at a different width")
+
+    monkeypatch.setattr(manager, "_get_size", lambda _fd: (100, 28))
+    monkeypatch.setattr(os, "killpg", lambda _pid, _signal: None)
+
+    def resize_with_redraw(_fd: int, columns: int, rows: int) -> None:
+        if (columns, rows) == (96, 22):
+            record.append_output(b"\x1b[2J\x1b[Hagent redraw at browser width")
+
+    monkeypatch.setattr(manager, "_set_size", resize_with_redraw)
+
+    output, cursor = manager.connection_output(session.id, 96, 22)
+
+    assert output.startswith(b"\x1bc\x1b[2J\x1b[H")
+    assert b"agent redraw at browser width" in output
+    assert b"old frames" not in output
+    assert cursor == record.next_sequence
+    manager.close(session.id)
+
+
 def test_default_agent_runs_without_prompts_inside_the_project() -> None:
     assert "--ask-for-approval never" in DEFAULT_AGENT_COMMAND
     assert "--sandbox workspace-write" in DEFAULT_AGENT_COMMAND
@@ -236,9 +298,13 @@ elif command == "attach-session":
     captured, _ = second_manager.transcript(first.id)
     assert b"conversation-before-restart\r\n" in captured
     second_manager.latest(first.id)
+    second_manager.scroll(first.id, -12)
     commands = (fake_state / "commands.log").read_text(encoding="utf-8")
     assert "history-limit 50000" in commands
     assert "mouse on" in commands
     assert "status off" in commands
     assert "send-keys -X" in commands
+    assert "copy-mode -t" in commands
+    assert "-N 12" in commands
+    assert "scroll-up" in commands
     second_manager.close(first.id)

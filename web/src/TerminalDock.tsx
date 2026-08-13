@@ -75,7 +75,7 @@ function TerminalView({
 }: {
   session: TerminalSessionInfo;
   onEnded: (sessionId: string) => void;
-  onConnectionChange: (state: TerminalConnectionState) => void;
+  onConnectionChange: (sessionId: string, state: TerminalConnectionState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -117,12 +117,15 @@ function TerminalView({
     let retries = 0;
     let terminalEnded = false;
     let reconnectMessageShown = false;
+    let readyForInput = false;
 
     const connect = () => {
       if (disposed) return;
-      onConnectionChange(retries ? "reconnecting" : "connecting");
+      readyForInput = false;
+      onConnectionChange(session.id, retries ? "reconnecting" : "connecting");
+      fit.fit();
       socket = new WebSocket(
-        `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws`,
+        `${socketProtocol}://${window.location.host}/api/terminals/${session.id}/ws?columns=${terminal.cols}&rows=${terminal.rows}`,
       );
       socketRef.current = socket;
       socket.binaryType = "arraybuffer";
@@ -132,13 +135,23 @@ function TerminalView({
           decoder = new TextDecoder();
           fit.fit();
         }
-        retries = 0;
-        reconnectMessageShown = false;
-        onConnectionChange("connected");
-        terminal.focus();
-        socket?.send(JSON.stringify({ type: "resize", columns: terminal.cols, rows: terminal.rows }));
       };
       socket.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          try {
+            const message = JSON.parse(event.data) as { type?: string };
+            if (message.type === "ready") {
+              readyForInput = true;
+              retries = 0;
+              reconnectMessageShown = false;
+              onConnectionChange(session.id, "connected");
+              terminal.focus();
+              return;
+            }
+          } catch {
+            // Ordinary terminal text is not JSON and should render below.
+          }
+        }
         const output = event.data instanceof ArrayBuffer
           ? decoder.decode(event.data, { stream: true })
           : String(event.data);
@@ -149,7 +162,7 @@ function TerminalView({
         if (disposed) return;
         if (terminalEnded || event.code === 4404) {
           if (event.code === 4404) terminal.writeln("\r\nThis terminal was not found after the server restarted.");
-          onConnectionChange("ended");
+          onConnectionChange(session.id, "ended");
           onEnded(session.id);
           return;
         }
@@ -159,7 +172,7 @@ function TerminalView({
             : "\r\nConnection interrupted. Reconnecting…");
           reconnectMessageShown = true;
         }
-        onConnectionChange("reconnecting");
+        onConnectionChange(session.id, "reconnecting");
         retries += 1;
         const delay = Math.min(8000, 500 * (2 ** Math.min(retries, 4)));
         retryTimer = window.setTimeout(connect, delay);
@@ -167,7 +180,7 @@ function TerminalView({
     };
     connect();
     const input = terminal.onData((data) => {
-      if (socket?.readyState === WebSocket.OPEN) {
+      if (readyForInput && socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
@@ -182,10 +195,27 @@ function TerminalView({
       }
     });
     let wheelRemainder = 0;
+    const sendPersistentScroll = (lines: number) => {
+      if (socket?.readyState !== WebSocket.OPEN || !lines) return;
+      socket.send(JSON.stringify({ type: "scroll", lines }));
+    };
     const handleWheel = (event: WheelEvent) => {
       if (!event.deltaY) return;
       if (session.persistent) {
-        if (event.deltaY < 0) setReadingEarlier(true);
+        event.preventDefault();
+        event.stopPropagation();
+        const lines = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL
+          ? event.deltaY / 24
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? event.deltaY * terminal.rows
+            : event.deltaY;
+        wheelRemainder += lines;
+        const wholeLines = wheelRemainder > 0 ? Math.floor(wheelRemainder) : Math.ceil(wheelRemainder);
+        if (wholeLines) {
+          sendPersistentScroll(wholeLines);
+          wheelRemainder -= wholeLines;
+          if (wholeLines < 0) setReadingEarlier(true);
+        }
         return;
       }
       event.preventDefault();
@@ -204,9 +234,18 @@ function TerminalView({
     };
     containerRef.current.addEventListener("wheel", handleWheel, { capture: true, passive: false });
     terminal.attachCustomKeyEventHandler((event) => {
-      if (session.persistent) return true;
       if (event.type !== "keydown" || !event.shiftKey) return true;
-      if (event.key === "ArrowUp") terminal.scrollLines(-3);
+      if (session.persistent) {
+        if (event.key === "ArrowUp") sendPersistentScroll(-3);
+        else if (event.key === "ArrowDown") sendPersistentScroll(3);
+        else if (event.key === "PageUp") sendPersistentScroll(-terminal.rows);
+        else if (event.key === "PageDown") sendPersistentScroll(terminal.rows);
+        else if (event.key === "End") {
+          socket?.send(JSON.stringify({ type: "latest" }));
+          setReadingEarlier(false);
+        } else return true;
+        if (event.key !== "End") setReadingEarlier(true);
+      } else if (event.key === "ArrowUp") terminal.scrollLines(-3);
       else if (event.key === "ArrowDown") terminal.scrollLines(3);
       else if (event.key === "PageUp") terminal.scrollPages(-1);
       else if (event.key === "PageDown") terminal.scrollPages(1);
@@ -283,12 +322,13 @@ export default function TerminalDock({
   const [busy, setBusy] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [confirmStopAll, setConfirmStopAll] = useState(false);
-  const [connectionState, setConnectionState] = useState<TerminalConnectionState>("ended");
+  const [connectionStates, setConnectionStates] = useState<Record<string, TerminalConnectionState>>({});
   const handledDiscussion = useRef<number | null>(null);
   const handledResearchStart = useRef<number | null>(null);
   const openingDiscussion = useRef(false);
   const openingResearch = useRef(false);
   const active = sessions.find((session) => session.id === activeId) ?? null;
+  const connectionState = activeId ? connectionStates[activeId] ?? "connecting" : "ended";
   const runningSessions = useMemo(
     () => sessions
       .filter((session) => session.status === "active")
@@ -459,6 +499,12 @@ export default function TerminalDock({
     });
   }, []);
 
+  const markConnectionState = useCallback((sessionId: string, state: TerminalConnectionState) => {
+    setConnectionStates((current) => current[sessionId] === state
+      ? current
+      : { ...current, [sessionId]: state });
+  }, []);
+
   return (
     <section className={`terminal-dock ${expanded ? "expanded" : ""} ${runningSessions.length ? "has-sessions" : ""}`}>
       <div className="terminal-bar">
@@ -514,7 +560,6 @@ export default function TerminalDock({
                 className="terminal-tab-main"
                 onClick={() => {
                   setActiveId(session.id);
-                  setConnectionState("connecting");
                   setExpanded(true);
                 }}
                 title={session.title}
@@ -540,9 +585,23 @@ export default function TerminalDock({
           <button onClick={() => setConfirmStopAll(false)} disabled={busy}>Cancel</button>
         </div>
       )}
-      {expanded && active ? (
-        <TerminalView session={active} onEnded={markTerminalEnded} onConnectionChange={setConnectionState} />
-      ) : (
+      {runningSessions.length > 0 && (
+        <div className={expanded ? "terminal-view-stack expanded" : "terminal-view-stack"}>
+          {runningSessions.map((session) => (
+            <div
+              className={expanded && session.id === activeId ? "terminal-view-pane active" : "terminal-view-pane"}
+              key={session.id}
+            >
+              <TerminalView
+                session={session}
+                onEnded={markTerminalEnded}
+                onConnectionChange={markConnectionState}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      {!expanded && (
         <div className="terminal-preview">
           <span className="prompt">delta</span>
           <span>{active ? `${active.title} is still running.` : "No terminal is running for this project."}</span>

@@ -734,6 +734,39 @@ def test_project_can_keep_multiple_research_terminals_running(tmp_path: Path, mo
     assert stopped == {"status": "closed", "count": 2}
 
 
+def test_terminal_websocket_prepares_the_browser_size_before_accepting_input(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "terminal-size"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    app = create_app(tmp_path / "terminal-size-data.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/import", json={"path": str(project)}).json()
+        session = client.post(
+            f"/api/workspaces/{workspace['id']}/terminals",
+            json={"kind": "shell", "title": "Size test"},
+        ).json()
+        prepared: list[tuple[str, int, int]] = []
+
+        def connection_output(session_id: str, columns: int, rows: int) -> tuple[bytes, int]:
+            prepared.append((session_id, columns, rows))
+            return b"\x1bcBROWSER-SIZED-SCREEN", 1_000_000
+
+        monkeypatch.setattr(app.state.terminals, "connection_output", connection_output)
+        with client.websocket_connect(
+            f"/api/terminals/{session['id']}/ws?columns=137&rows=17"
+        ) as websocket:
+            assert websocket.receive_bytes() == b"\x1bcBROWSER-SIZED-SCREEN"
+            assert json.loads(websocket.receive_text()) == {"type": "ready"}
+
+        client.delete(f"/api/terminals/{session['id']}")
+
+    assert prepared == [(session["id"], 137, 17)]
+
+
 def test_installed_app_serves_web_ui_and_api_from_one_port(tmp_path: Path) -> None:
     web_dist = tmp_path / "web"
     web_dist.mkdir()

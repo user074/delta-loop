@@ -215,6 +215,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .terminal-dock.has-sessions:not(.expanded) .terminal-preview { height: 32px; font-size: 9px; }
 .terminal-preview .prompt { color: var(--acid); }.terminal-preview .prompt::after { content: " ›"; color: #737068; }
 .terminal-preview button { margin-left: auto; display: flex; align-items: center; gap: 5px; border: 1px solid #48483f; border-radius: 5px; background: #303029; color: #aaa79f; padding: 6px 9px; font: 9px "SFMono-Regular", Consolas, monospace; }
+.terminal-view-stack { position: absolute; inset: 72px 0 0; height: 268px; visibility: hidden; pointer-events: none; }
+.terminal-view-stack.expanded { visibility: visible; }
+.terminal-view-pane { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.terminal-view-pane.active { visibility: visible; pointer-events: auto; }
 .terminal-screen-wrap { position: relative; height: 305px; }
 .terminal-dock.has-sessions .terminal-screen-wrap { height: 268px; }
 .terminal-screen { height: 100%; padding: 8px 10px 6px; overflow: hidden; overscroll-behavior: contain; }
