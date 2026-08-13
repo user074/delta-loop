@@ -201,15 +201,10 @@ def test_agent_connection_forces_a_clean_redraw_without_tmux(
     manager.close(session.id)
 
 
-def test_default_agent_runs_without_prompts_inside_the_project() -> None:
-    assert "--ask-for-approval never" in DEFAULT_AGENT_COMMAND
-    assert "--sandbox workspace-write" in DEFAULT_AGENT_COMMAND
-    assert "sandbox_workspace_write.network_access=true" in DEFAULT_AGENT_COMMAND
-    assert "features.network_proxy.enabled=true" in DEFAULT_AGENT_COMMAND
-    assert "features.network_proxy.allow_local_binding=true" in DEFAULT_AGENT_COMMAND
-    assert 'domains={ "127.0.0.1" = "allow" }' in DEFAULT_AGENT_COMMAND
-    assert "danger-full-access" not in DEFAULT_AGENT_COMMAND
-    assert "--yolo" not in DEFAULT_AGENT_COMMAND
+def test_default_agent_can_manage_git_and_paths_outside_the_project() -> None:
+    assert "--dangerously-bypass-approvals-and-sandbox" in DEFAULT_AGENT_COMMAND
+    assert "--sandbox workspace-write" not in DEFAULT_AGENT_COMMAND
+    assert "--ask-for-approval" not in DEFAULT_AGENT_COMMAND
 
 
 def test_installed_terminal_uses_the_single_app_address(tmp_path: Path) -> None:

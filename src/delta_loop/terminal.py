@@ -22,11 +22,7 @@ from .models import TerminalKind, TerminalSessionInfo, now_iso
 
 
 DEFAULT_AGENT_COMMAND = (
-    "codex --no-alt-screen --ask-for-approval never --sandbox workspace-write "
-    "-c sandbox_workspace_write.network_access=true "
-    "-c features.network_proxy.enabled=true "
-    "-c features.network_proxy.allow_local_binding=true "
-    "-c 'features.network_proxy.domains={ \"127.0.0.1\" = \"allow\" }'"
+    "codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox"
 )
 
 TRANSCRIPT_LIMIT_BYTES = 16 * 1024 * 1024

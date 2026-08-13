@@ -453,7 +453,7 @@ export default function ComputePage({
 
         <div className="git-shared-machine-note">
           <Github size={16} />
-          <p><strong>The machine's Git and GitHub account is shared.</strong> Git identity, credentials, and installed tools already available on this machine do not need to be set up again. Delta Loop still checks this project's repository, branch, remote, and push permission separately.</p>
+          <p><strong>Codex can write the real repository.</strong> Chats opened by Delta Loop have full access to this machine, including its Git and SSH setup. Delta Loop still checks this project's repository, branch, remote, and push permission separately.</p>
         </div>
 
         <div className="git-location-grid">
