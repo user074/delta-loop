@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import select
+import signal
 import socket
 import subprocess
 import sys
@@ -58,6 +59,22 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     connect_parser.add_argument("--remote-port", default=4317, type=int)
     connect_parser.add_argument("--local-port", default=4318, type=int)
     connect_parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
+
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show the Delta Loop server and its active terminals",
+    )
+    status_parser.add_argument("--host", default="127.0.0.1")
+    status_parser.add_argument("--port", default=4317, type=int)
+    status_parser.add_argument("--data", help="Advanced: use a different Delta Loop data file")
+
+    stop_parser = subparsers.add_parser(
+        "stop",
+        help="Stop Delta Loop and all terminals it owns",
+    )
+    stop_parser.add_argument("--host", default="127.0.0.1")
+    stop_parser.add_argument("--port", default=4317, type=int)
+    stop_parser.add_argument("--data", help="Advanced: use a different Delta Loop data file")
 
     import_parser = subparsers.add_parser("import", help="Preview a delta-research workspace import")
     import_parser.add_argument("path")
@@ -424,6 +441,14 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
         )
         return
 
+    if args.command == "status":
+        _show_ui_status(args.host, args.port, args.data)
+        return
+
+    if args.command == "stop":
+        _stop_ui(args.host, args.port, args.data)
+        return
+
     if args.command == "terminal":
         _attach_terminal(args.url, args.session_id)
         return
@@ -680,7 +705,7 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
 
 
 def ui_main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "connect":
+    if len(sys.argv) > 1 and sys.argv[1] in {"connect", "status", "stop", "-h", "--help"}:
         main(sys.argv[1:], program="delta-loop")
     else:
         main(["ui", *sys.argv[1:]], program="delta-loop")
@@ -691,6 +716,119 @@ def _default_data_path() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return (Path.home() / ".delta-loop" / "workspaces.json").resolve()
+
+
+def _server_registry_path(port: int, data_path: str | None = None) -> Path:
+    store_path = Path(data_path).expanduser().resolve() if data_path else _default_data_path()
+    return store_path.parent / f"server-{port}.json"
+
+
+def _write_server_registry(path: Path, host: str, port: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps({"pid": os.getpid(), "host": host, "port": port}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _read_server_pid(path: Path) -> int | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        pid = int(payload.get("pid", 0))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _remove_server_registry(path: Path, pid: int) -> None:
+    if _read_server_pid(path) != pid:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _server_url(host: str, port: int) -> str:
+    browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    return f"http://{browser_host}:{port}"
+
+
+def _active_terminal_sessions(url: str) -> list[dict]:
+    sessions: list[dict] = []
+    for workspace in _api_json(url, "/api/workspaces"):
+        workspace_id = urllib.parse.quote(str(workspace["id"]), safe="")
+        for session in _api_json(url, f"/api/workspaces/{workspace_id}/terminals"):
+            if session.get("status") == "active":
+                sessions.append(session)
+    return sessions
+
+
+def _show_ui_status(host: str, port: int, data_path: str | None) -> None:
+    url = _server_url(host, port)
+    if not _app_is_running(url):
+        print(f"Delta Loop is not running at {url}")
+        return
+    print(f"Delta Loop is running at {url}")
+    pid = _read_server_pid(_server_registry_path(port, data_path))
+    if pid:
+        print(f"Server process: {pid}")
+    try:
+        sessions = _active_terminal_sessions(url)
+    except SystemExit as exc:
+        print(f"Could not read terminal status: {exc}")
+        return
+    if not sessions:
+        print("Active terminals: none")
+    else:
+        print(f"Active terminals: {len(sessions)}")
+        for session in sessions:
+            kind = "chat" if session.get("kind") == "discussion" else session.get("kind", "terminal")
+            persistence = "persistent" if session.get("persistent") else "ends with Delta Loop"
+            print(f"- {session['id']} · {kind} · {session['title']} · {persistence}")
+    print("Saved Codex chats are not active processes; use `codex resume --all` to reopen one.")
+
+
+def _stop_ui(host: str, port: int, data_path: str | None) -> None:
+    url = _server_url(host, port)
+    registry = _server_registry_path(port, data_path)
+    pid = _read_server_pid(registry)
+    if not _app_is_running(url):
+        if pid:
+            _remove_server_registry(registry, pid)
+        print(f"Delta Loop is not running at {url}")
+        return
+    if not pid:
+        raise SystemExit(
+            "Delta Loop is reachable, but no local server process is recorded. "
+            "Run this command on the machine where Delta Loop was started. If an older version started it, "
+            "stop that older process once and then start it again with this version."
+        )
+    try:
+        sessions = _active_terminal_sessions(url)
+        workspace_ids = {str(session["workspace_id"]) for session in sessions}
+        for workspace_id in workspace_ids:
+            encoded = urllib.parse.quote(workspace_id, safe="")
+            _api_json(url, f"/api/workspaces/{encoded}/terminals", method="DELETE")
+    except SystemExit as exc:
+        raise SystemExit(f"Could not stop Delta Loop terminals: {exc}") from exc
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        _remove_server_registry(registry, pid)
+        print(f"Delta Loop is not running at {url}")
+        return
+    except PermissionError as exc:
+        raise SystemExit(f"Could not stop Delta Loop server process {pid}: permission denied.") from exc
+    for _ in range(50):
+        if not _app_is_running(url):
+            _remove_server_registry(registry, pid)
+            print(f"Stopped Delta Loop and {len(sessions)} active terminal(s).")
+            return
+        time.sleep(0.1)
+    raise SystemExit(f"Delta Loop process {pid} did not stop. Check it with `delta-loop status`.")
 
 
 def _app_is_running(url: str) -> bool:
@@ -797,8 +935,7 @@ def _run_ui(host: str, port: int, open_browser: bool, data_path: str | None) -> 
 
     from .api import create_app
 
-    browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
-    url = f"http://{browser_host}:{port}"
+    url = _server_url(host, port)
     if _app_is_running(url):
         print(f"Delta Loop is already running at {url}")
         if open_browser:
@@ -820,7 +957,12 @@ def _run_ui(host: str, port: int, open_browser: bool, data_path: str | None) -> 
     print(f"Opening Delta Loop at {url}")
     print(f"Your Delta Loop data is stored in {store_path.parent}")
     print("Keep this window open while using Delta Loop. Press Ctrl+C to stop it.")
-    uvicorn.run(application, host=host, port=port, reload=False)
+    registry = _server_registry_path(port, str(store_path))
+    _write_server_registry(registry, host, port)
+    try:
+        uvicorn.run(application, host=host, port=port, reload=False)
+    finally:
+        _remove_server_registry(registry, os.getpid())
 
 
 def _attach_terminal(base_url: str, session_id: str) -> None:

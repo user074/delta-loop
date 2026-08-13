@@ -389,6 +389,18 @@ class TerminalManager:
             self.close(session_id)
         return len(session_ids)
 
+    def close_all(self) -> int:
+        """End every process owned by this Delta Loop server."""
+        with self._lock:
+            session_ids = [
+                record.info.id
+                for record in self._sessions.values()
+                if record.info.status == "active"
+            ]
+        for session_id in session_ids:
+            self.close(session_id)
+        return len(session_ids)
+
     def detach_all(self) -> None:
         """Detach browser-facing tmux clients without ending their sessions."""
         with self._lock:

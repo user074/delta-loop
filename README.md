@@ -395,6 +395,22 @@ the panel leaves every tab running and Delta Loop continues recording its output
 read earlier messages; **Latest message** returns to the live output. **End** stops only the selected tab; **Stop all**
 stops every Delta Loop terminal for the current project but does not delete Codex's saved conversation history.
 
+From the same computer where Delta Loop is running, you can check the server and every live terminal with:
+
+```bash
+delta-loop status
+```
+
+This lists live Delta Loop terminals, not every saved Codex transcript. A saved chat is only history and consumes no
+compute until it is resumed. To stop the server and every terminal process it owns, use:
+
+```bash
+delta-loop stop
+```
+
+Pressing Ctrl+C in the window that started Delta Loop now has the same full-shutdown behavior. Neither method deletes
+Codex's saved conversation history; `codex resume --all` can reopen a saved chat later.
+
 For a short session where you do not need Delta Loop to survive disconnection, you can start the app and tunnel
 together with one command from your computer:
 
