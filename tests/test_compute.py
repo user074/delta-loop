@@ -64,6 +64,51 @@ def test_local_compute_inspection_uses_the_local_project(tmp_path: Path) -> None
         assert "requirements.txt" in inspection["dependency_files"]
 
 
+def test_ready_compute_is_reusable_as_a_machine_profile(tmp_path: Path) -> None:
+    first_project = tmp_path / "first-project"
+    first_project.mkdir()
+    (first_project / "STATE.md").write_text(STATE, encoding="utf-8")
+    second_project = tmp_path / "second-project"
+    second_project.mkdir()
+    (second_project / "STATE.md").write_text(STATE, encoding="utf-8")
+    app = create_app(tmp_path / "profiles-data.json")
+
+    with TestClient(app) as client:
+        first = client.post("/api/workspaces/import", json={"path": str(first_project)}).json()
+        client.post(
+            f"/api/workspaces/{first['id']}/compute/inspect",
+            json={"kind": "local"},
+        )
+        client.put(
+            f"/api/workspaces/{first['id']}/compute",
+            json={
+                "kind": "local",
+                "name": "This computer",
+                "ssh_host": "",
+                "project_path": "",
+                "run_path": "~/.delta-loop/runs",
+                "setup_command": "source project-one-env",
+                "gpu_devices": "0",
+                "max_parallel": 2,
+            },
+        )
+        checked = client.post(f"/api/workspaces/{first['id']}/compute/check")
+        assert checked.status_code == 200
+        client.post("/api/workspaces/import", json={"path": str(second_project)})
+
+        profiles = client.get("/api/compute-profiles")
+        assert profiles.status_code == 200
+        profile = profiles.json()[0]
+        assert profile["id"] == "local"
+        assert profile["gpu_devices"] == "0"
+        assert profile["max_parallel"] == 2
+        assert first["name"] in profile["source_projects"]
+        assert "project_path" not in profile
+        assert "setup_command" not in profile
+        assert "run_path" not in profile
+        assert "detected_python" not in profile
+
+
 def test_git_check_reads_local_research_repository_and_policy(tmp_path: Path) -> None:
     project = tmp_path / "git-project"
     project.mkdir()

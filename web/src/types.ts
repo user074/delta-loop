@@ -213,6 +213,25 @@ export interface ComputeInspection {
   notes: string[];
 }
 
+export interface ComputeProfile {
+  id: string;
+  kind: "local" | "ssh";
+  name: string;
+  ssh_host: string;
+  gpu_devices: string;
+  max_parallel: number;
+  last_checked_at: string;
+  detected_git: string;
+  hostname: string;
+  operating_system: string;
+  scheduler: string;
+  gpus: string[];
+  cpu: string;
+  memory: string;
+  environment_tools: string[];
+  source_projects: string[];
+}
+
 export interface GitRepositoryStatus {
   state: "unchecked" | "ready" | "not-repository" | "unreachable";
   message: string;

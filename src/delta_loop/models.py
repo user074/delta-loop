@@ -366,6 +366,25 @@ class ComputeInspection(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class ComputeProfile(BaseModel):
+    id: str
+    kind: ComputeKind
+    name: str
+    ssh_host: str = ""
+    gpu_devices: str = ""
+    max_parallel: int = Field(default=1, ge=1, le=16)
+    last_checked_at: str = ""
+    detected_git: str = ""
+    hostname: str = ""
+    operating_system: str = ""
+    scheduler: str = "none"
+    gpus: list[str] = Field(default_factory=list)
+    cpu: str = ""
+    memory: str = ""
+    environment_tools: list[str] = Field(default_factory=list)
+    source_projects: list[str] = Field(default_factory=list)
+
+
 class GitRepositoryStatus(BaseModel):
     state: GitRepositoryState = "unchecked"
     message: str = "The research repository has not been checked yet."

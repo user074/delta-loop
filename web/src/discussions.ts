@@ -1,10 +1,25 @@
-import type { ResearchNode, Workspace } from "./types";
+import type { ComputeProfile, ResearchNode, Workspace } from "./types";
 
 export interface DiscussionRequest {
   id: number;
   nodeId: string | null;
   topic: string;
   prompt: string;
+}
+
+function computeProfileContext(profile: ComputeProfile): string[] {
+  return [
+    "The following machine profile was verified for another project and is reusable prior context, not a claim that this project's environment is identical:",
+    `- Machine: ${profile.name}${profile.ssh_host ? ` (${profile.ssh_host})` : ""}`,
+    `- Host name: ${profile.hostname || "not recorded"}`,
+    `- Last checked: ${profile.last_checked_at}`,
+    `- Hardware: ${profile.gpus.length ? profile.gpus.join("; ") : "no GPU was recorded"}${profile.cpu ? `; ${profile.cpu}` : ""}${profile.memory ? `; ${profile.memory}` : ""}`,
+    `- Scheduler: ${profile.scheduler === "none" ? "none found" : profile.scheduler}`,
+    `- Saved user defaults: GPU numbers ${profile.gpu_devices || "no extra limit"}; at most ${profile.max_parallel} run(s) at once`,
+    `- Git executable already available to this user: ${profile.detected_git || "not recorded"}`,
+    `- Previously used by: ${profile.source_projects.join(", ")}`,
+    "Reuse the machine identity, SSH alias, known hardware, GPU limit, concurrency, and Git tools already available to this user. Do not copy a previous project's folder, Python environment, run or output folder, repository remote, branch, or push permission. Confirm those for this project.",
+  ];
 }
 
 function opening(topic: string) {
@@ -112,7 +127,10 @@ export function connectResearchNodeDiscussion(workspace: Workspace, node: Resear
   };
 }
 
-export function projectSetupDiscussion(workspace: Workspace): Omit<DiscussionRequest, "id"> {
+export function projectSetupDiscussion(
+  workspace: Workspace,
+  profile?: ComputeProfile,
+): Omit<DiscussionRequest, "id"> {
   return {
     nodeId: workspace.nodes.find((node) => node.kind === "question" && node.status === "primary")?.id
       ?? workspace.nodes.find((node) => node.kind === "question")?.id
@@ -121,13 +139,16 @@ export function projectSetupDiscussion(workspace: Workspace): Omit<DiscussionReq
     prompt: [
       ...opening("an existing project that does not have a research state yet"),
       `The project folder is: ${workspace.root}`,
+      ...(profile ? computeProfileContext(profile) : []),
       "No STATE.md was found. Run the full delta-research initialization, adapted for Delta Loop. The result must include project understanding, seed hypotheses and experiments, reusable inputs, verified compute, research boundaries, literature grounding, Git choices, and the initial research files. Do not start experiments, install packages, change Git, or edit the research code during setup.",
       "First explore the repository read-only until you understand its overall purpose, main components, data flow, important entry points, current experiments, and Git state. Read README.md, AGENTS.md or CLAUDE.md, dependency files, relevant source entry points, and experiment scripts. Follow imports or references when needed. Do not read generated data, caches, checkpoints, large artifacts, secrets, or every implementation file.",
       "Do not ask the researcher to invent the structure from scratch. After exploring, lead with your best concise explanation of what the project does and a first draft of its research structure. Let the researcher correct it.",
       "Use three abstraction levels: (1) one or a small number of high-level research questions—the broad scientific problems that should remain meaningful across many experiments, with short titles of roughly 10–20 words and no command, exact hyperparameter, model version, metric threshold, or step-by-step method; (2) normally 2–5 mid-level ideas—distinct explanations, mechanisms, or strategic directions, each with a short conceptual title rather than a task or single run; and (3) concrete experiments—specific implementations, comparisons, datasets, ablations, or measurements. Put precision in summaries and experiments instead of making question or idea titles carry every detail.",
       "Treat this as a graph, not a forced tree. An idea may explore more than one question; an experiment may test or inform more than one idea; and results may support, challenge, inform, depend on, or simply relate to another item. Add only relationships that mean something scientifically.",
       "Follow the upstream initialization interview one short round at a time: (1) correct the project understanding and broad questions; (2) identify seed hypotheses, competing explanations, what has already worked or failed, and what evidence would change the researcher's mind; (3) identify reference repositories and reusable datasets, checkpoints, models, libraries, and evaluation tools; (4) agree on success, stop conditions, time or compute budget, command permission level, things not to touch, and irreversible actions. Never dump all questions into one form-like message.",
-      "Run `delta compute inspect --local`, explain the detected environment and hardware, and ask only about choices the inspection cannot reveal: exact environment activation, allowed GPUs and concurrency, storage paths, and machine or lab rules. After approval use `delta compute set --kind local` with the agreed settings and `delta compute check`. Do not claim the environment is verified until that check says ready.",
+      profile
+        ? "Run `delta compute inspect --local` once to check this project's folder and environment candidates. Reuse the saved machine facts and usual resource limits unless this check contradicts them; do not spend the setup conversation rediscovering the same hardware or asking the researcher to repeat unchanged machine-wide choices. Confirm the project-specific environment, storage paths, and rules. After approval use `delta compute set --kind local` with the agreed settings and `delta compute check`. Do not claim the environment is verified until that check says ready."
+        : "Run `delta compute inspect --local`, explain the detected environment and hardware, and ask only about choices the inspection cannot reveal: exact environment activation, allowed GPUs and concurrency, storage paths, and machine or lab rules. After approval use `delta compute set --kind local` with the agreed settings and `delta compute check`. Do not claim the environment is verified until that check says ready.",
       "Run `delta git check`, explain the repository state, and explicitly review whether Git management remains off or which commit and push policy is allowed. Permission to commit never implies permission to push. Save only an approved rule through `delta rules update git-reviewed-work` when management is enabled.",
       "Keep project facts found in the repository separate from choices supplied by the researcher. Reuse existing AGENTS.md, CLAUDE.md, README.md, and INFRA.md; do not overwrite them. Delta Loop owns the generated .delta-loop/LOOP.md and .delta-loop/POLICY.md files.",
       "Present one compact proposed initialization for approval: project understanding; the visual map; prior work; reusable inputs; success, stop, and budget; verified compute; command permission level; Git behavior; and project constraints. Include your own best proposal based on the repository instead of only asking questions. Wait for explicit approval before saving anything.",
@@ -140,7 +161,10 @@ export function projectSetupDiscussion(workspace: Workspace): Omit<DiscussionReq
   };
 }
 
-export function remoteProjectSetupDiscussion(workspace: Workspace): Omit<DiscussionRequest, "id"> {
+export function remoteProjectSetupDiscussion(
+  workspace: Workspace,
+  profile?: ComputeProfile,
+): Omit<DiscussionRequest, "id"> {
   return {
     nodeId: workspace.nodes.find((node) => node.kind === "question" && node.status === "primary")?.id
       ?? workspace.nodes.find((node) => node.kind === "question")?.id
@@ -150,7 +174,10 @@ export function remoteProjectSetupDiscussion(workspace: Workspace): Omit<Discuss
       ...opening("an existing research project that stays on a remote server"),
       `Delta Loop created this local notes folder: ${workspace.root}`,
       "The research code is not in that local folder. It stays on the researcher's server. Do not ask the researcher to clone it locally or create STATE.md on the server.",
-      "First ask only for two things: the SSH host or alias they already use, and the full path to the existing project on that server. Never ask for a password, private key, token, or other secret.",
+      ...(profile ? computeProfileContext(profile) : []),
+      profile
+        ? `The researcher already selected ${profile.name} at SSH alias ${profile.ssh_host}. Do not ask which server to use. First ask only for the full path to the existing project on that server. Never ask for a password, private key, token, or other secret.`
+        : "First ask only for two things: the SSH host or alias they already use, and the full path to the existing project on that server. Never ask for a password, private key, token, or other secret.",
       "Opening this setup chat is the researcher's authorization to perform read-only inspection inside that named remote project after they provide those two values. Be as active there as you would be with a local repository; do not wait for separate permission before each safe inspection command.",
       "After receiving both values, run `delta project inspect-remote --host HOST --project PROJECT_PATH` immediately. It recursively maps the repository, skips generated data and secrets, identifies likely entry points, and reads orientation files plus several likely entry points. This is the required starting point, not the end of repository exploration.",
       "Actively follow the structure the inspection reveals. Use `delta project read-remote --host HOST --project PROJECT_PATH PATH [PATH ...]` in focused batches to read the relevant source files, experiment definitions, configuration, and imports needed to understand the project's purpose, main components, data flow, prior work, and current experiment surface. Continue until you can explain the project rather than stopping after the first inventory. Stay inside the named project, do not read secrets or artifacts, and do not explore unrelated server folders.",
@@ -252,10 +279,19 @@ export function generalPolicyDiscussion(
 export function computeDiscussion(
   workspace: Workspace,
   target: "local" | "ssh",
+  profile?: ComputeProfile,
 ): Omit<DiscussionRequest, "id"> {
   const compute = workspace.compute;
   const targetName = target === "local" ? "this computer" : "a remote server";
-  const inspectionInstructions = target === "local"
+  const inspectionInstructions = profile
+    ? target === "local"
+      ? [
+          "The researcher selected the saved This computer profile. Reuse its known machine and user defaults. Run one `delta compute inspect --local` only to inspect this project's folder and environment candidates; do not spend time rediscovering general hardware or asking again about saved GPU and concurrency defaults unless the current check contradicts them.",
+        ]
+      : [
+          `The researcher selected the saved server profile for ${profile.name} at SSH alias ${profile.ssh_host}. Do not ask for the server again. Ask only for this project's folder if it is not already saved, then run one bounded \`delta compute inspect --host ${profile.ssh_host} --project PROJECT_PATH\`. Reuse known machine facts and defaults; focus the inspection and questions on the new project, its environment, and its paths.`,
+        ]
+    : target === "local"
     ? [
         "The researcher chose this computer before opening this chat. Do not ask whether they meant remote work.",
         "Run exactly one bounded read-only inspection with `delta compute inspect --local`. Do not repeat it unless the researcher asks or it fails.",
@@ -264,6 +300,7 @@ export function computeDiscussion(
         "The researcher chose a remote server before opening this chat. Do not redirect them to local setup unless they change their mind.",
         "If the saved remote location is not enough, ask only for its SSH host or existing SSH alias and the project folder. Then run exactly one bounded read-only inspection with `delta compute inspect --host HOST --project PROJECT_PATH`. If the saved remote location is correct, run `delta compute inspect` without those options. Do not browse the server broadly or repeat the inspection unless the researcher asks or the first check fails.",
       ];
+  const profileContext = profile ? computeProfileContext(profile) : [];
   return {
     nodeId: null,
     topic: `setting up ${targetName} for research work`,
@@ -272,6 +309,7 @@ export function computeDiscussion(
       `The saved location is currently: ${!compute.configured ? "none" : compute.kind === "ssh" ? `${compute.name} over SSH at ${compute.ssh_host}` : "this computer"}.`,
       "Run `delta compute show` before asking your first question.",
       "Follow the delta-research infrastructure principle: first probe objective facts, then interview the researcher about policies and conventions that commands cannot reveal. Keep detected facts and human choices visibly separate.",
+      ...profileContext,
       ...inspectionInstructions,
       "Summarize what the inspection found: project and Git state; existing README.md, STATE.md, or INFRA.md; possible environment managers and environments; Python; scheduler; visible GPUs; CPU and memory; and whether the project and run location are writable. A GPU missing on a login node is not proof that the cluster has no GPUs.",
       "Then ask one short round at a time about what cannot be safely inferred: (1) the environment and exact setup command, (2) which GPUs and how many runs may run together, (3) paths and rules for datasets, checkpoints, scratch files, and caches, and (4) login-node, Git, data, or lab rules. Reuse an existing INFRA.md rather than contradicting it.",
