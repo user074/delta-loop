@@ -134,6 +134,21 @@ def test_running_terminals_with_the_same_context_get_distinct_titles(tmp_path: P
     manager.close(second.id)
 
 
+def test_close_all_ends_every_owned_terminal(tmp_path: Path) -> None:
+    manager = TerminalManager()
+    first = manager.create("workspace-one", str(tmp_path), None)
+    second = manager.create("workspace-two", str(tmp_path), None)
+    first_process = manager._sessions[first.id].process
+    second_process = manager._sessions[second.id].process
+
+    assert manager.close_all() == 2
+    first_process.wait(timeout=3)
+    second_process.wait(timeout=3)
+
+    assert manager.get(first.id).status == "exited"
+    assert manager.get(second.id).status == "exited"
+
+
 def test_terminal_keeps_output_while_no_browser_is_attached(tmp_path: Path) -> None:
     manager = TerminalManager()
     session = manager.create("workspace", str(tmp_path), "idea-1")

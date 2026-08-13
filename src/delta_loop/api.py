@@ -102,7 +102,10 @@ def create_app(
     app.state.store = store
     app.state.runner = runner
     app.state.terminals = terminals
-    app.router.add_event_handler("shutdown", terminals.detach_all)
+    # A graceful shutdown is an explicit request to stop Delta Loop, so it
+    # must not leave Codex or shell processes running in the background. tmux
+    # still preserves sessions across an ungraceful crash or lost connection.
+    app.router.add_event_handler("shutdown", terminals.close_all)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:4317", "http://localhost:4317"],
