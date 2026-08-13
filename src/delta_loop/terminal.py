@@ -17,7 +17,7 @@ from .models import TerminalKind, TerminalSessionInfo, now_iso
 
 
 DEFAULT_AGENT_COMMAND = (
-    "codex --no-alt-screen --sandbox workspace-write "
+    "codex --no-alt-screen --ask-for-approval never --sandbox workspace-write "
     "-c sandbox_workspace_write.network_access=true "
     "-c features.network_proxy.enabled=true "
     "-c features.network_proxy.allow_local_binding=true "
@@ -165,6 +165,11 @@ class TerminalManager:
                 os.killpg(record.process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                try:
+                    record.process.terminate()
+                except (ProcessLookupError, PermissionError):
+                    pass
         record.info.status = "exited"
 
     def _record(self, session_id: str) -> _TerminalRecord:

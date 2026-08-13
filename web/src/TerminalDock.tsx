@@ -134,6 +134,7 @@ export default function TerminalDock({
   researchStartRequest,
   onResearchSessionChange,
   onResearchStartFinished,
+  onExpandedChange,
   onError,
 }: {
   workspace: Workspace;
@@ -142,6 +143,7 @@ export default function TerminalDock({
   researchStartRequest: ResearchLaunchRequest | null;
   onResearchSessionChange: (session: TerminalSessionInfo | null) => void;
   onResearchStartFinished: () => void;
+  onExpandedChange: (expanded: boolean) => void;
   onError: (message: string) => void;
 }) {
   const [sessions, setSessions] = useState<TerminalSessionInfo[]>([]);
@@ -165,6 +167,10 @@ export default function TerminalDock({
   useEffect(() => {
     onResearchSessionChange(latestResearchSession);
   }, [latestResearchSession, onResearchSessionChange]);
+
+  useEffect(() => {
+    onExpandedChange(expanded);
+  }, [expanded, onExpandedChange]);
 
   useEffect(() => {
     listTerminals(workspace.id)

@@ -246,9 +246,14 @@ check` and `delta git show`.
 changes or update a checkout that points at a different Git remote. It does not silently replace the active loop;
 that loop remains a checked, reversible Delta Loop policy version.
 
-The discussion buttons start Codex by default. Its command sandbox allows local connections so it can reach
-Delta Loop at `127.0.0.1`, while other internet destinations remain blocked. Set `DELTA_LOOP_AGENT_COMMAND`
-before starting Delta Loop to use another interactive agent command.
+The discussion and research buttons start Codex without asking for approval for every command or file edit. Codex
+may write inside the selected research project, but the workspace sandbox still prevents it from changing unrelated
+folders. Its command sandbox allows local connections so it can reach Delta Loop at `127.0.0.1`, while other
+internet destinations remain blocked.
+
+This is deliberately safer than Codex's full `--yolo` mode: it removes the repeated prompts without removing the
+project boundary. Set `DELTA_LOOP_AGENT_COMMAND` before starting Delta Loop if you want to supply a different
+interactive agent command.
 
 ## Alternative: run Delta Loop itself on a remote server
 

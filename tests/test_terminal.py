@@ -101,12 +101,15 @@ def test_research_supervisor_session_is_distinct_from_shell_and_chat(tmp_path: P
     manager.close(session.id)
 
 
-def test_default_agent_can_only_reach_delta_loop() -> None:
+def test_default_agent_runs_without_prompts_inside_the_project() -> None:
+    assert "--ask-for-approval never" in DEFAULT_AGENT_COMMAND
+    assert "--sandbox workspace-write" in DEFAULT_AGENT_COMMAND
     assert "sandbox_workspace_write.network_access=true" in DEFAULT_AGENT_COMMAND
     assert "features.network_proxy.enabled=true" in DEFAULT_AGENT_COMMAND
     assert "features.network_proxy.allow_local_binding=true" in DEFAULT_AGENT_COMMAND
     assert 'domains={ "127.0.0.1" = "allow" }' in DEFAULT_AGENT_COMMAND
     assert "danger-full-access" not in DEFAULT_AGENT_COMMAND
+    assert "--yolo" not in DEFAULT_AGENT_COMMAND
 
 
 def test_installed_terminal_uses_the_single_app_address(tmp_path: Path) -> None:

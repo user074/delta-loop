@@ -163,39 +163,68 @@ export default function ComputePage({
       <header className="compute-head">
         <div>
           <div className="section-kicker"><Server size={14} /> Compute</div>
-          <h1>Set up where research work runs</h1>
-          <p>Let Codex look at the server first, explain what it found, and ask you about the choices it cannot know.</p>
+          <h1>{ready ? "Where research work runs" : "Set up where research work runs"}</h1>
+          <p>{ready
+            ? "This is the active compute setup for research work. Review it here and change it only when the project moves."
+            : "Let Codex look at the server first, explain what it found, and ask you about the choices it cannot know."}</p>
         </div>
       </header>
 
-      <section className="compute-codex-setup">
-        <div className="compute-codex-copy">
-          <div className="compute-recommended">Recommended</div>
-          <h2>Set up with Codex</h2>
-          <p>First choose where the work should run. Codex will use the matching setup process and will not ask you to make this choice again.</p>
-          <div className="compute-codex-targets" aria-label="Set up with Codex">
-            <button onClick={() => onDiscuss(computeDiscussion(workspace, "local"))}>
-              <Computer size={18} />
-              <span><strong>This computer</strong><small>Check the current project and local environment</small></span>
-            </button>
-            <button onClick={() => onDiscuss(computeDiscussion(workspace, "ssh"))}>
-              <Server size={18} />
-              <span><strong>Remote server</strong><small>Connect with SSH, then inspect the server</small></span>
-            </button>
+      {ready ? (
+        <section className="compute-ready-summary">
+          <div className="compute-ready-copy">
+            <CheckCircle2 size={24} />
+            <div>
+              <div className="compute-complete-label">Compute setup complete</div>
+              <h2>{compute.kind === "ssh" ? compute.name : "This computer"} is ready</h2>
+              <p>{compute.kind === "ssh"
+                ? `Research commands run in ${compute.project_path} through ${compute.ssh_host}.`
+                : `Research commands run inside ${workspace.root}.`}</p>
+            </div>
           </div>
-          <small><ShieldCheck size={13} /> It will not install software, move data, change Git, or start research work during setup.</small>
-        </div>
-        <ol className="compute-setup-steps">
-          <li><span>1</span><div><strong>Look</strong><p>Check the project, Python environments, GPUs, storage, Git, and any scheduler.</p></div></li>
-          <li><span>2</span><div><strong>Ask you</strong><p>Confirm the environment, GPU limits, file locations, and lab or server rules.</p></div></li>
-          <li><span>3</span><div><strong>Save and prove</strong><p>Save only what you approve, then test the exact environment setup without running an experiment.</p></div></li>
-        </ol>
-      </section>
+          <div className="compute-ready-facts">
+            <div><small>Last checked</small><strong>{compute.last_checked_at ? new Date(compute.last_checked_at).toLocaleString() : "Ready"}</strong></div>
+            <div><small>Runs at once</small><strong>{compute.max_parallel}</strong></div>
+            <div><small>Allowed GPUs</small><strong>{compute.gpu_devices || "No extra limit"}</strong></div>
+          </div>
+          <button className="compute-review-button" onClick={() => onDiscuss(computeDiscussion(workspace, compute.kind))}>
+            <MessageCircle size={14} /> Review or change with Codex
+          </button>
+        </section>
+      ) : (
+        <section className="compute-codex-setup">
+          <div className="compute-codex-copy">
+            <div className="compute-recommended">Recommended</div>
+            <h2>Set up with Codex</h2>
+            <p>First choose where the work should run. Codex will use the matching setup process and will not ask you to make this choice again.</p>
+            <div className="compute-codex-targets" aria-label="Set up with Codex">
+              <button onClick={() => onDiscuss(computeDiscussion(workspace, "local"))}>
+                <Computer size={18} />
+                <span><strong>This computer</strong><small>Check the current project and local environment</small></span>
+              </button>
+              <button onClick={() => onDiscuss(computeDiscussion(workspace, "ssh"))}>
+                <Server size={18} />
+                <span><strong>Remote server</strong><small>Connect with SSH, then inspect the server</small></span>
+              </button>
+            </div>
+            <small><ShieldCheck size={13} /> It will not install software, move data, change Git, or start research work during setup.</small>
+          </div>
+          <ol className="compute-setup-steps">
+            <li><span>1</span><div><strong>Look</strong><p>Check the project, Python environments, GPUs, storage, Git, and any scheduler.</p></div></li>
+            <li><span>2</span><div><strong>Ask you</strong><p>Confirm the environment, GPU limits, file locations, and lab or server rules.</p></div></li>
+            <li><span>3</span><div><strong>Save and prove</strong><p>Save only what you approve, then test the exact environment setup without running an experiment.</p></div></li>
+          </ol>
+        </section>
+      )}
 
       <div className="compute-layout">
         <details className="compute-main compute-manual">
           <summary>
-            <div><span>Manual option</span><strong>Enter the settings yourself</strong><small>Use this only when you already know the exact server setup.</small></div>
+            <div>
+              <span>{compute.configured ? "Saved settings" : "Manual option"}</span>
+              <strong>{compute.configured ? "Review or change the saved settings" : "Enter the settings yourself"}</strong>
+              <small>{compute.configured ? "Opening this does not change anything until you save." : "Use this only when you already know the exact server setup."}</small>
+            </div>
             <ChevronDown size={18} />
           </summary>
           <div className="compute-manual-body">

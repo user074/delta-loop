@@ -43,6 +43,7 @@ export default function App() {
   const [researchStartRequest, setResearchStartRequest] = useState<ResearchLaunchRequest | null>(null);
   const [researchSession, setResearchSession] = useState<TerminalSessionInfo | null>(null);
   const [researchStarting, setResearchStarting] = useState(false);
+  const [terminalExpanded, setTerminalExpanded] = useState(false);
 
   useEffect(() => {
     listWorkspaces()
@@ -64,6 +65,7 @@ export default function App() {
     [selectedId, workspace],
   );
   const projectNeedsSetup = workspace?.setup_status === "needs-setup";
+  const computeReady = Boolean(workspace?.compute.configured && workspace.compute.status === "ready");
 
   const openDiscussion = useCallback((request: Omit<DiscussionRequest, "id">) => {
     if (request.nodeId) setSelectedId(request.nodeId);
@@ -175,7 +177,7 @@ export default function App() {
         <div className="sidebar-foot"><div className={!workspace?.compute.configured ? "local-dot unset" : "local-dot"} /><span>{!workspace?.compute.configured ? "Unset" : workspace.compute.kind === "ssh" ? "Remote work" : "Local work"}</span></div>
       </aside>
 
-      <main className="main-shell">
+      <main className={terminalExpanded ? "main-shell terminal-expanded" : "main-shell"}>
         <header className="topbar">
           <div className="topbar-project-meta">
             <div className="eyebrow">Delta Loop / {workspace?.name ?? "No project"}</div>
@@ -209,12 +211,14 @@ export default function App() {
         {workspace?.setup_status === "needs-setup" && (
           <section className="project-setup-banner">
             <div>
-              <strong>Set up this project</strong>
-              <p>{workspace.project_source === "remote"
-                ? "Codex will inspect the repository on your server, propose the questions and idea map, check compute and Git, then save the agreed research starting point and rules."
-                : "Codex will inspect this repository, propose the questions and idea map, check compute and Git, then save the agreed research starting point and rules."}</p>
+              <strong>{computeReady ? "Compute is ready — finish the research starting point" : "Set up this project"}</strong>
+              <p>{computeReady
+                ? "The machine is already configured. Codex still needs to save the approved research questions, idea map, prior work, and stopping rules."
+                : workspace.project_source === "remote"
+                  ? "Codex will inspect the repository on your server, propose the questions and idea map, check compute and Git, then save the agreed research starting point and rules."
+                  : "Codex will inspect this repository, propose the questions and idea map, check compute and Git, then save the agreed research starting point and rules."}</p>
             </div>
-            <button onClick={() => openDiscussion(setupDiscussion(workspace))}><SquareTerminal size={15} /> Chat with Codex</button>
+            <button onClick={() => openDiscussion(setupDiscussion(workspace))}><SquareTerminal size={15} /> {computeReady ? "Continue with Codex" : "Chat with Codex"}</button>
           </section>
         )}
 
@@ -261,6 +265,7 @@ export default function App() {
                 researchStartRequest={researchStartRequest}
                 onResearchSessionChange={setResearchSession}
                 onResearchStartFinished={finishResearchStart}
+                onExpandedChange={setTerminalExpanded}
                 onError={setError}
               />
             </Suspense>
