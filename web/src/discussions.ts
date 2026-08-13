@@ -70,14 +70,70 @@ export function addExperimentFromIdeaDiscussion(idea: ResearchNode): Omit<Discus
       idea.summary ? `Idea thesis: ${idea.summary}` : "",
       "Help turn the researcher's thought into one concrete experiment: the implementation or intervention, comparison, data, measurement, and what result would distinguish the relevant explanations. Keep it small by default unless the researcher asks for a full study.",
       "Ask only for missing choices that materially change the experiment. Propose the smallest informative version and identify what it cannot establish.",
-      `After explicit approval, save it with \`delta map add-test "TITLE" --under ${idea.id} --summary "METHOD AND EVIDENCE"\`. If the same experiment tests or informs another idea, use \`delta map connect OTHER_ID EXPERIMENT_ID --relationship tests|informs --note "WHY"\` only after agreement.`,
+      `After explicit approval, save it with \`delta map add-work "TITLE" --kind quick-test --under ${idea.id} --relationship tests --summary "METHOD AND EVIDENCE"\`. Use literature-review, replicate, compare-explanations, ablation, full-study, or research-engineering instead of quick-test when that is what was agreed. If the same work tests or informs another idea, use \`delta map connect OTHER_ID WORK_ID --relationship tests|informs --note "WHY"\` only after agreement.`,
       "Do not start the experiment in this discussion. Run `delta map show` afterward and summarize what was added.",
     ].filter(Boolean).join("\n\n"),
   };
 }
 
+export function addLiteratureReviewDiscussion(node: ResearchNode): Omit<DiscussionRequest, "id"> {
+  return {
+    nodeId: node.id,
+    topic: `adding a literature review around ${node.title}`,
+    prompt: [
+      ...opening("a focused literature review connected to the selected research item"),
+      `The selected item is [${node.id}]: ${node.title}`,
+      "Clarify the uncertainty the review should resolve, its search boundary, and what decision it should inform. Keep it focused enough to change the next research choice.",
+      `After explicit approval, save it with \`delta map add-work "TITLE" --kind literature-review --under ${node.id} --relationship leads-to --summary "QUESTION, SCOPE, AND DECISION"\`. If the review should directly inform another item, add that link after agreement with \`delta map connect REVIEW_ID TARGET_ID --relationship informs --note "WHY"\`.`,
+      "Do not perform the review in this planning chat unless the researcher asks. Run `delta map show` after saving.",
+    ].join("\n\n"),
+  };
+}
+
+export function addFindingDiscussion(node: ResearchNode): Omit<DiscussionRequest, "id"> {
+  return {
+    nodeId: node.id,
+    topic: `recording what was learned from ${node.title}`,
+    prompt: [
+      ...opening("an important finding from selected research work"),
+      `The selected work is [${node.id}]: ${node.title}`,
+      "Help separate the observed result from its interpretation. Ask what evidence was actually obtained, how trustworthy it is, and what research decision it changes.",
+      `After explicit approval, save the durable conclusion with \`delta map add-finding "TITLE" --under ${node.id} --summary "OBSERVATION, LIMIT, AND MEANING"\`. Then connect it to affected ideas or questions with supports, challenges, revises, informs, or leads-to links only where the meaning is explicit.`,
+      "Run `delta map show` afterward and summarize the new visible research path.",
+    ].join("\n\n"),
+  };
+}
+
+export function addFollowUpIdeaDiscussion(node: ResearchNode): Omit<DiscussionRequest, "id"> {
+  return {
+    nodeId: node.id,
+    topic: `developing a follow-up idea from ${node.title}`,
+    prompt: [
+      ...opening("a new or revised idea that follows from the selected research item"),
+      `The selected starting point is [${node.id}]: ${node.title}`,
+      "Determine whether this is a genuinely new idea, a material revision of an existing idea, or simply another experiment. Preserve the old idea when its history remains useful.",
+      `After explicit approval, use \`delta map add-idea "TITLE" --under ${node.id} --relationship leads-to|revises|informs --summary "THESIS"\`. Choose revises only when the selected item is a finding that materially changes the earlier idea. Add other meaningful links separately.`,
+      "Run `delta map show` afterward and explain how the path changed.",
+    ].join("\n\n"),
+  };
+}
+
+export function continueResearchFromNodeDiscussion(node: ResearchNode): Omit<DiscussionRequest, "id"> {
+  return {
+    nodeId: node.id,
+    topic: `what should follow ${node.title}`,
+    prompt: [
+      ...opening("the next research step from a selected place in the map"),
+      `Continue from [${node.id}]: ${node.title}`,
+      "Read the nearby incoming and outgoing relationships with `delta map show`. Help decide whether the right continuation is a focused review, experiment, finding, revised idea, new idea, repeat, or a different experiment after failure.",
+      "Propose the smallest useful next step and the relationship it has to the selected item. Do not force it into Question → Idea → Experiment order.",
+      "Save only the option the researcher approves using `delta map add-work`, `delta map add-finding`, `delta map add-idea`, or `delta map connect`. Run `delta map show` after saving.",
+    ].join("\n\n"),
+  };
+}
+
 export function reviseResearchNodeDiscussion(node: ResearchNode): Omit<DiscussionRequest, "id"> {
-  const label = node.kind === "question" ? "question" : node.kind === "direction" ? "idea" : "experiment";
+  const label = node.kind === "question" ? "question" : node.kind === "direction" ? "idea" : node.kind === "finding" ? "finding" : "research work";
   return {
     nodeId: node.id,
     topic: `revising ${node.title}`,
@@ -86,7 +142,7 @@ export function reviseResearchNodeDiscussion(node: ResearchNode): Omit<Discussio
       `The researcher clicked Revise on this ${label} [${node.id}]: ${node.title}`,
       node.summary ? `Current summary: ${node.summary}` : "",
       `Current status: ${node.status}. Current potential: ${node.promise}.`,
-      "Find out whether they want to clarify the wording, materially reframe it, change its status or potential, move its main placement, split it, or merge its meaning with another item. Preserve the distinction between high-level questions, mid-level ideas, and concrete experiments.",
+      "Find out whether they want to clarify the wording, materially reframe it, change its status or potential, move its main placement, split it, or merge its meaning with another item. Preserve the distinction between questions, ideas, research work, and findings.",
       `Do not change it until the researcher approves both the change and why it evolved. Then use \`delta map update ${node.id} ... --reason "WHY THIS CHANGED"\`. Use dormant to park it without losing it; do not delete it.`,
       "If the revision changes relationships, use `delta map connect` or `delta map disconnect` only for the agreed links. Run `delta map show` after saving and explain the visible change.",
     ].filter(Boolean).join("\n\n"),
@@ -94,14 +150,14 @@ export function reviseResearchNodeDiscussion(node: ResearchNode): Omit<Discussio
 }
 
 export function connectResearchNodeDiscussion(node: ResearchNode): Omit<DiscussionRequest, "id"> {
-  const label = node.kind === "question" ? "question" : node.kind === "direction" ? "idea" : "experiment";
+  const label = node.kind === "question" ? "question" : node.kind === "direction" ? "idea" : node.kind === "finding" ? "finding" : "research work";
   return {
     nodeId: node.id,
     topic: `connecting ${node.title} to other research`,
     prompt: [
       ...opening(`how a selected research ${label} relates to another item`),
       `The researcher clicked Connect on this ${label} [${node.id}]: ${node.title}`,
-      "Ask which other question, idea, or experiment they have in mind and what the scientific relationship means. Use explores for question → idea, tests for idea → experiment, supports or challenges for evidence-bearing relationships, informs for useful implications, depends-on for prerequisites, and related only when no more precise meaning fits.",
+      "Ask which other question, idea, work, or finding they have in mind and what the scientific relationship means. Use explores for question → idea, tests for idea → work, produces for work → finding, revises for a finding that changes an idea, leads-to for a research continuation, alternative-to for competing paths, supports or challenges for evidence, informs for useful implications, depends-on for prerequisites, and related only when nothing more precise fits.",
       "State the proposed direction in plain language before saving it; direction matters. Do not create vague links merely because two items mention similar words.",
       "After explicit approval, use `delta map connect SOURCE_ID TARGET_ID --relationship TYPE --note \"WHY\"`. If replacing an incorrect relationship, add the correct one first, verify it, then use `delta map disconnect LINK_ID` for the old one.",
       "Run `delta map show` afterward and summarize the connection that is now visible.",
@@ -222,7 +278,7 @@ export function researchMapDiscussion(
     nodeId: selected?.id ?? null,
     topic: selected ? `the research map around ${selected.title}` : "the research idea map",
     prompt: [
-      ...opening("how the research question branches into ideas and ways to test them"),
+      ...opening("how questions, ideas, work, and findings develop over time"),
       selected ? `The researcher currently has this selected: ${selected.title}` : "No particular node is selected.",
       "Run `delta map show`. Help the researcher develop or revise the map, and save only the change they approve. Use `delta map --help` if needed.",
     ].join("\n\n"),

@@ -51,7 +51,7 @@ starting questions and ideas, reusable code and data, what would count as succes
 compute, and how Git should be handled. It does not install software, run experiments, or change the remote
 repository during setup. You approve the complete starting setup before Delta Loop saves it.
 
-The proposed research map has three levels:
+The proposed research map starts with three simple levels:
 
 ```text
 High-level research question
@@ -63,7 +63,9 @@ High-level research question
 ```
 
 Delta Loop keeps the number of ideas small and records when an idea is reframed, parked, reopened, or moved, so
-you can review how the research direction evolved.
+you can review how the research direction evolved. After work starts, the map can continue beyond that initial
+shape: a literature review can lead to an idea, work can produce a finding, a finding can revise or create an idea,
+and failed work can lead to a different experiment.
 
 Finishing setup requires an actual compute check and an actual Git inspection. It creates the first research state,
 summary, literature list, run folders, and a readable record of everything agreed during setup. The Home page keeps
@@ -169,6 +171,9 @@ delta map show
 delta map add-question "How broadly does the effect generalize?" --summary "A second high-level question"
 delta map add-idea "A possible explanation" --under QUESTION_ID --summary "Why it may matter"
 delta map add-test "Smallest useful test" --under IDEA_ID
+delta map add-work "Focused literature review" --kind literature-review --under QUESTION_ID --relationship leads-to
+delta map add-finding "The effect survives the matched control" --under WORK_ID --summary "Observed result and limits"
+delta map add-idea "A revised explanation" --under FINDING_ID --relationship revises
 delta map connect QUESTION_ID IDEA_ID --relationship explores --note "This idea may answer both questions"
 delta map connect ANOTHER_ID EXPERIMENT_ID --relationship tests
 delta map connect EXPERIMENT_ID ANOTHER_ID --relationship informs
@@ -183,17 +188,17 @@ delta harness show
 delta harness update
 ```
 
-The Research page is a graph with three readable columns: high-level questions, mid-level ideas, and concrete
-experiments. A project can have several questions. An idea may connect to more than one question, and an experiment
-may test or inform more than one idea. Connections have plain meanings—`explores`, `tests`, `supports`, `challenges`,
-`informs`, `depends-on`, or `related`—and are drawn directly on the map. Selecting an item highlights only its
-connections and shows the same relationships in the detail panel. Existing projects keep their original primary
-parent for compatibility while Delta Loop automatically exposes that parent as a graph connection.
+The Research page lays out the saved main path from left to right rather than forcing item types into fixed columns.
+A path can continue through questions, ideas, experiments, literature reviews, findings, revised ideas, and follow-up
+work. Lighter cross-links show support, challenges, shared tests, alternatives, and other meaningful relationships.
+The zoom buttons switch between a questions-and-ideas overview, the working map, and detailed cards. Selecting an
+item emphasizes what led to it and what followed; its later steps can be hidden without deleting anything. Existing
+projects retain their original parent placements and automatically appear in the new view.
 
-The map is also the entry point for changing the research. **Add question** starts a focused Codex conversation.
-Selecting a question exposes **Add idea**; selecting an idea exposes **Add experiment**. Every selected item has
-**Explore**, **Revise**, and **Connect** actions. Codex receives the selected item and current graph automatically,
-proposes the change, and writes it only after the researcher approves it.
+The map is also the entry point for changing the research. Every selected item can **Continue from here**, add a
+focused literature review, or open Chat, Revise, and Connect actions. Questions can add ideas, ideas can add
+experiments, work can record findings, and work or findings can create follow-up ideas. Codex receives the selected
+item and its surrounding path automatically, proposes the change, and writes it only after approval.
 
 ## Run research work on a remote server
 

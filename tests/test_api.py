@@ -496,6 +496,110 @@ def test_research_map_supports_multiple_questions_and_cross_links(tmp_path: Path
         assert len(removed["research_links"]) == len(snapshot["research_links"]) - 1
 
 
+def test_research_map_supports_reviews_findings_and_continuing_paths(tmp_path: Path) -> None:
+    project = tmp_path / "research-trace"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    app = create_app(tmp_path / "loop-data.json")
+
+    with TestClient(app) as client:
+        workspace = client.post("/api/workspaces/import", json={"path": str(project)}).json()
+        workspace_id = workspace["id"]
+        question = next(node for node in workspace["nodes"] if node["kind"] == "question")
+
+        with_review = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "work",
+                "work_kind": "literature-review",
+                "text": "Review evidence for representation limits",
+                "summary": "Find what is established before choosing a mechanism.",
+                "parent_id": question["id"],
+            },
+        ).json()
+        review = next(node for node in with_review["nodes"] if node["title"].startswith("Review evidence"))
+        assert review["kind"] == "approach"
+        assert review["next_work_kind"] == "literature-review"
+
+        with_idea = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "idea",
+                "text": "The representation discards task structure",
+                "parent_id": review["id"],
+                "relationship": "informs",
+            },
+        ).json()
+        idea = next(node for node in with_idea["nodes"] if node["title"].startswith("The representation discards"))
+        assert idea["parent_id"] == review["id"]
+
+        with_test = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "work",
+                "work_kind": "quick-test",
+                "text": "Compare matched representations",
+                "parent_id": idea["id"],
+                "relationship": "tests",
+            },
+        ).json()
+        test = next(node for node in with_test["nodes"] if node["title"] == "Compare matched representations")
+
+        with_finding = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "finding",
+                "text": "Only structured inputs improve transfer",
+                "summary": "The difference survives the matched control but needs replication.",
+                "parent_id": test["id"],
+            },
+        ).json()
+        finding = next(node for node in with_finding["nodes"] if node["kind"] == "finding")
+        assert any(
+            link["source_id"] == test["id"]
+            and link["target_id"] == finding["id"]
+            and link["relationship"] == "produces"
+            for link in with_finding["research_links"]
+        )
+
+        revised = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "idea",
+                "text": "Structure matters only under transfer",
+                "parent_id": finding["id"],
+                "relationship": "revises",
+            },
+        ).json()
+        revised_idea = next(node for node in revised["nodes"] if node["title"].startswith("Structure matters"))
+        assert revised_idea["parent_id"] == finding["id"]
+        revised_links = [
+            link for link in revised["research_links"]
+            if link["source_id"] == finding["id"] and link["target_id"] == revised_idea["id"]
+        ]
+        assert len(revised_links) == 1
+        assert revised_links[0]["relationship"] == "revises"
+
+        alternative = client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={
+                "kind": "work",
+                "text": "Try a different matched control",
+                "parent_id": test["id"],
+                "relationship": "leads-to",
+            },
+        ).json()
+        second_test = next(node for node in alternative["nodes"] if node["title"].startswith("Try a different"))
+        assert second_test["parent_id"] == test["id"]
+
+        circular = client.patch(
+            f"/api/workspaces/{workspace_id}/nodes/{review['id']}",
+            json={"parent_id": revised_idea["id"], "reason": "This should be rejected."},
+        )
+        assert circular.status_code == 422
+        assert "circular" in circular.json()["detail"]
+
+
 def test_plan_run_and_review_flow(tmp_path: Path) -> None:
     project = tmp_path / "research"
     project.mkdir()

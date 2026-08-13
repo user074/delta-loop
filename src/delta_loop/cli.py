@@ -308,19 +308,35 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
 
     map_parser = subparsers.add_parser("map", help="Read or develop the research idea map")
     map_subparsers = map_parser.add_subparsers(dest="map_command", required=True)
-    map_show = map_subparsers.add_parser("show", help="Show questions, ideas, experiments, and their relationships")
+    map_show = map_subparsers.add_parser("show", help="Show questions, ideas, work, findings, and their relationships")
     map_show.add_argument("--json", action="store_true", dest="as_json")
     map_add_question = map_subparsers.add_parser("add-question", help="Add another high-level research question")
     map_add_question.add_argument("title")
     map_add_question.add_argument("--summary", default="")
-    map_add_idea = map_subparsers.add_parser("add-idea", help="Add an idea under a research question")
+    map_add_idea = map_subparsers.add_parser("add-idea", help="Add an idea after any relevant map item")
     map_add_idea.add_argument("title")
     map_add_idea.add_argument("--summary", default="")
     map_add_idea.add_argument("--under", dest="parent_id")
+    map_add_idea.add_argument("--relationship", choices=["explores", "revises", "leads-to", "informs"])
     map_add_test = map_subparsers.add_parser("add-test", help="Add a way to test an idea")
     map_add_test.add_argument("title")
     map_add_test.add_argument("--under", required=True, dest="parent_id")
     map_add_test.add_argument("--summary", default="")
+    map_add_work = map_subparsers.add_parser("add-work", help="Add an experiment, review, analysis, or other research work")
+    map_add_work.add_argument("title")
+    map_add_work.add_argument("--under", required=True, dest="parent_id")
+    map_add_work.add_argument("--summary", default="")
+    map_add_work.add_argument(
+        "--kind",
+        default="quick-test",
+        choices=["quick-test", "replicate", "literature-review", "compare-explanations", "ablation", "full-study", "research-engineering"],
+        dest="work_kind",
+    )
+    map_add_work.add_argument("--relationship", choices=["tests", "leads-to", "informs", "depends-on"])
+    map_add_finding = map_subparsers.add_parser("add-finding", help="Record an important result from earlier work")
+    map_add_finding.add_argument("title")
+    map_add_finding.add_argument("--under", required=True, dest="parent_id")
+    map_add_finding.add_argument("--summary", default="")
     map_update = map_subparsers.add_parser("update", help="Update or move something on the map")
     map_update.add_argument("node_id")
     map_update.add_argument("--title")
@@ -335,12 +351,12 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     map_connect.add_argument(
         "--relationship",
         required=True,
-        choices=["explores", "tests", "supports", "challenges", "informs", "depends-on", "related"],
+        choices=["explores", "tests", "produces", "revises", "leads-to", "alternative-to", "supports", "challenges", "informs", "depends-on", "related"],
     )
     map_connect.add_argument("--note", default="")
     map_disconnect = map_subparsers.add_parser("disconnect", help="Remove a relationship from the map")
     map_disconnect.add_argument("link_id")
-    for item in (map_show, map_add_question, map_add_idea, map_add_test, map_update, map_connect, map_disconnect):
+    for item in (map_show, map_add_question, map_add_idea, map_add_test, map_add_work, map_add_finding, map_update, map_connect, map_disconnect):
         item.add_argument("--workspace")
         item.add_argument("--url", default=_default_api_url())
 
@@ -543,12 +559,32 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
         elif args.map_command == "add-question":
             _add_map_node(args.url, args.workspace, "question", args.title, args.summary, None)
         elif args.map_command == "add-idea":
-            _add_map_node(args.url, args.workspace, "idea", args.title, args.summary, args.parent_id)
+            _add_map_node(args.url, args.workspace, "idea", args.title, args.summary, args.parent_id, relationship=args.relationship)
         elif args.map_command == "add-test":
             _add_map_node(
                 args.url,
                 args.workspace,
                 "way-to-test",
+                args.title,
+                args.summary,
+                args.parent_id,
+            )
+        elif args.map_command == "add-work":
+            _add_map_node(
+                args.url,
+                args.workspace,
+                "work",
+                args.title,
+                args.summary,
+                args.parent_id,
+                work_kind=args.work_kind,
+                relationship=args.relationship,
+            )
+        elif args.map_command == "add-finding":
+            _add_map_node(
+                args.url,
+                args.workspace,
+                "finding",
                 args.title,
                 args.summary,
                 args.parent_id,
@@ -1653,6 +1689,8 @@ def _map_nodes(workspace: dict) -> list[dict]:
             "parent_id": node["parent_id"],
             "status": node["status"],
             "promise": node["promise"],
+            "evidence_strength": node["evidence_strength"],
+            "next_work_kind": node["next_work_kind"],
         }
         for node in workspace.get("nodes", [])
     ]
@@ -1666,11 +1704,12 @@ def _show_map(base_url: str, workspace_id: str | None, as_json: bool) -> None:
     if as_json:
         print(json.dumps({"nodes": nodes, "links": links}, indent=2))
         return
-    labels = {"question": "Question", "direction": "Idea", "approach": "Experiment"}
-    for kind in ("question", "direction", "approach"):
+    labels = {"question": "Question", "direction": "Idea", "approach": "Work", "finding": "Finding"}
+    for kind in ("question", "direction", "approach", "finding"):
         print(f"\n{labels[kind]}s")
         for node in (item for item in nodes if item["kind"] == kind):
-            print(f"- [{node['id']}] {node['title']} ({node['status']})")
+            subtype = f", {node['next_work_kind'].replace('-', ' ')}" if kind == "approach" else ""
+            print(f"- [{node['id']}] {node['title']} ({node['status']}{subtype})")
             if node["summary"]:
                 print(f"  {node['summary']}")
     print("\nRelationships")
@@ -1690,6 +1729,8 @@ def _add_map_node(
     title: str,
     summary: str,
     parent_id: str | None,
+    work_kind: str = "quick-test",
+    relationship: str | None = None,
 ) -> None:
     workspace_id, _ = _ids(workspace_id)
     before = _workspace(base_url, workspace_id)
@@ -1704,10 +1745,12 @@ def _add_map_node(
             "text": title,
             "summary": summary,
             "parent_id": parent_id,
+            "work_kind": work_kind,
+            "relationship": relationship,
         },
     )
     created = next(node for node in updated["nodes"] if node["id"] not in before_ids)
-    label = {"question": "question", "direction": "idea", "approach": "experiment"}[created["kind"]]
+    label = {"question": "question", "direction": "idea", "approach": "work", "finding": "finding"}[created["kind"]]
     print(f"Added {label}: {created['title']} [{created['id']}]")
 
 

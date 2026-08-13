@@ -93,13 +93,13 @@ def render_policy(workspace: ProjectSnapshot, synced_at: str | None = None) -> s
         "",
         "## Research map",
         "",
-        "The project may have several high-level questions and shared ideas or experiments. Follow the recorded relationships instead of assuming one fixed tree.",
+        "The project may have several high-level questions and a continuing trace through ideas, research work, findings, and revised ideas. Follow the recorded main placements and relationships instead of assuming one fixed tree or stopping at the first experiment.",
         "",
         "| ID | Level | Title | Status |",
         "|---|---|---|---|",
     ]
 
-    level_names = {"question": "Question", "direction": "Idea", "approach": "Experiment"}
+    level_names = {"question": "Question", "direction": "Idea", "approach": "Work", "finding": "Finding"}
     for node in workspace.nodes:
         lines.append(
             f"| `{_table(node.id)}` | {_table(level_names[node.kind])} | "

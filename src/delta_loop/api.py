@@ -180,6 +180,30 @@ def create_app(
             save_with_policy(workspace)
         return workspace
 
+    def validate_research_relationship(
+        source: ResearchNode,
+        target: ResearchNode,
+        relationship: str,
+    ) -> None:
+        expected_kinds = {
+            "explores": ("question", "direction"),
+            "tests": ("direction", "approach"),
+            "produces": ("approach", "finding"),
+        }
+        expected = expected_kinds.get(relationship)
+        if expected and (source.kind, target.kind) != expected:
+            labels = {
+                "explores": "question to idea",
+                "tests": "idea to work",
+                "produces": "work to finding",
+            }
+            raise HTTPException(
+                status_code=422,
+                detail=f"A {relationship.replace('-', ' ')} link must go from {labels[relationship]}.",
+            )
+        if relationship == "revises" and (source.kind != "finding" or target.kind not in {"question", "direction"}):
+            raise HTTPException(status_code=422, detail="A revises link must go from a finding to a question or idea.")
+
     def reusable_compute_profiles() -> list[ComputeProfile]:
         profiles: dict[str, ComputeProfile] = {}
         for workspace in store.list():
@@ -510,21 +534,23 @@ def create_app(
                 raise HTTPException(status_code=422, detail="Testing style not found.")
         if patch.parent_id is not None:
             parent = next((item for item in workspace.nodes if item.id == patch.parent_id), None)
-            expected_parent = "question" if node.kind == "direction" else "direction"
-            if node.kind == "question" or not parent or parent.kind != expected_parent:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "An idea must sit under the main question."
-                        if node.kind == "direction"
-                        else "A way to test an idea must sit under an idea."
-                    ),
-                )
+            if not parent:
+                raise HTTPException(status_code=422, detail="Choose an existing research-map item as the earlier step.")
+            if parent.id == node.id:
+                raise HTTPException(status_code=422, detail="An item cannot follow itself.")
+            ancestor = parent
+            seen = {node.id}
+            by_id = {item.id: item for item in workspace.nodes}
+            while ancestor:
+                if ancestor.id in seen:
+                    raise HTTPException(status_code=422, detail="That move would create a circular main path.")
+                seen.add(ancestor.id)
+                ancestor = by_id.get(ancestor.parent_id or "")
             old_parent_link = primary_parent_link(workspace, node.id)
             if old_parent_link and old_parent_link.source_id != parent.id:
                 workspace.research_links.remove(old_parent_link)
-            relationship = default_relationship(parent.kind, node.kind)
-            if relationship and not any(
+            relationship = default_relationship(parent.kind, node.kind, parent.next_work_kind)
+            if not any(
                 link.source_id == parent.id
                 and link.target_id == node.id
                 and link.relationship == relationship
@@ -595,23 +621,12 @@ def create_app(
         if not text:
             raise HTTPException(status_code=422, detail="Write a short idea or note first.")
         requested_parent = None
-        if request.kind in {"idea", "way-to-test"} and request.parent_id:
-            expected_kind = "question" if request.kind == "idea" else "direction"
-            requested_parent = next(
-                (
-                    node for node in workspace.nodes
-                    if node.kind == expected_kind and node.id == request.parent_id
-                ),
-                None,
-            )
+        if request.kind in {"idea", "way-to-test", "work", "finding"} and request.parent_id:
+            requested_parent = next((node for node in workspace.nodes if node.id == request.parent_id), None)
             if not requested_parent:
                 raise HTTPException(
                     status_code=422,
-                    detail=(
-                        "Choose a research question for this idea."
-                        if request.kind == "idea"
-                        else "Choose an idea for this way of testing it."
-                    ),
+                    detail="Choose an existing research-map item as the earlier step.",
                 )
         note = QuickNote(
             id=f"note-{uuid4().hex[:10]}",
@@ -647,7 +662,7 @@ def create_app(
                 evidence_strength="none",
             )
             workspace.nodes.append(created_node)
-        elif request.kind == "way-to-test":
+        elif request.kind in {"way-to-test", "work"}:
             parent_id = requested_parent.id if requested_parent else (direction.id if direction else None)
             created_node = ResearchNode(
                 id=f"test-{uuid4().hex[:10]}",
@@ -659,12 +674,31 @@ def create_app(
                 promise="unassessed",
                 evidence_strength="none",
                 current_stage="minimal-probe",
+                next_work_kind=request.work_kind,
+            )
+            workspace.nodes.append(created_node)
+        elif request.kind == "finding":
+            if not requested_parent:
+                raise HTTPException(status_code=422, detail="Choose the work or earlier item that produced this finding.")
+            created_node = ResearchNode(
+                id=f"finding-{uuid4().hex[:10]}",
+                kind="finding",
+                title=text,
+                summary=request.summary.strip() or "Recorded after reviewing research work.",
+                parent_id=requested_parent.id,
+                status="active",
+                promise="unassessed",
+                evidence_strength="mixed",
             )
             workspace.nodes.append(created_node)
         if created_node and created_node.parent_id:
             parent = next((node for node in workspace.nodes if node.id == created_node.parent_id), None)
-            relationship = default_relationship(parent.kind, created_node.kind) if parent else None
+            relationship = request.relationship or (
+                default_relationship(parent.kind, created_node.kind, parent.next_work_kind)
+                if parent else None
+            )
             if relationship:
+                validate_research_relationship(parent, created_node, relationship)
                 workspace.research_links.append(
                     ResearchLink(
                         id=f"link-{uuid4().hex[:10]}",
@@ -688,10 +722,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="One of the research-map items was not found.")
         if source.id == target.id:
             raise HTTPException(status_code=422, detail="An item cannot connect to itself.")
-        if request.relationship == "explores" and (source.kind, target.kind) != ("question", "direction"):
-            raise HTTPException(status_code=422, detail="An explores link must go from a question to an idea.")
-        if request.relationship == "tests" and (source.kind, target.kind) != ("direction", "approach"):
-            raise HTTPException(status_code=422, detail="A tests link must go from an idea to an experiment.")
+        validate_research_relationship(source, target, request.relationship)
         if any(
             link.source_id == source.id
             and link.target_id == target.id
@@ -708,7 +739,7 @@ def create_app(
                 note=request.note.strip(),
             )
         )
-        if request.relationship in {"explores", "tests"} and target.parent_id is None:
+        if request.relationship in {"explores", "tests", "produces", "revises", "leads-to", "informs"} and target.parent_id is None:
             target.parent_id = source.id
         workspace.last_updated = now_iso()
         return save_with_policy(workspace)
@@ -721,11 +752,12 @@ def create_app(
             raise HTTPException(status_code=404, detail="Relationship not found.")
         workspace.research_links.remove(link)
         target = next((node for node in workspace.nodes if node.id == link.target_id), None)
-        if target and target.parent_id == link.source_id and link.relationship in {"explores", "tests"}:
+        if target and target.parent_id == link.source_id:
             replacement = next(
                 (
                     item for item in workspace.research_links
-                    if item.target_id == target.id and item.relationship == link.relationship
+                    if item.target_id == target.id
+                    and item.relationship in {"explores", "tests", "produces", "revises", "leads-to", "informs"}
                 ),
                 None,
             )

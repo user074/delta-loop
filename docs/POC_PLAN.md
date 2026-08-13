@@ -382,8 +382,8 @@ a concise PI update: claims and decisions first, evidence one click deeper, raw 
 
 ### 7.2 Research
 
-The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. It
-keeps three readable abstraction levels without forcing the research into one tree:
+The Research surface is a bounded visual graph optimized for lightweight lab notes and research navigation. Setup
+starts with three readable abstraction levels, but the active research trace is not restricted to that hierarchy:
 
 ```text
 One or more research questions
@@ -392,7 +392,9 @@ One or more research questions
 ```
 
 An idea is a meaningful explanation, mechanism, or strategic way to attack one or more research questions. An
-experiment is one concrete implementation, comparison, dataset, ablation, or measurement. Each node can start with
+experiment is one concrete implementation, comparison, dataset, ablation, or measurement. Work may instead be a
+literature review, replication, analysis, or research-engineering task. Work can produce a durable finding, and that
+finding can revise an existing idea, create a follow-up idea, or motivate different work. Each item can start with
 only a title and a short note; Delta should not force the researcher to fill a large form before preserving it.
 
 The graph supports a small set of typed relationships:
@@ -400,23 +402,31 @@ The graph supports a small set of typed relationships:
 ```text
 explores          Question → Idea
 tests             Idea → Experiment
+produces          Work → Finding
+revises           Finding → changed Question or Idea
+leads-to          Any research item → its next main step
+alternative-to    Any research item ↔ a competing path
 supports          Any research item → another research item
 challenges        Any research item → another research item
 informs           Any research item → another research item
-depends_on        Any research item → prerequisite research item
+depends-on        Any research item → prerequisite research item
 related           Any research item ↔ another research item
 ```
 
-Questions, ideas, and experiments occupy stable visual columns. Existing imports retain one compatibility parent,
-but typed links are the source of the visible research relationships. An idea can explore several questions and an
-experiment can test or inform several ideas without being duplicated.
+Each item keeps one main placement so the page can draw a readable left-to-right research trace. Additional typed
+links are lighter cross-connections. Columns represent successive steps rather than fixed item types, so the trace
+can extend through review → idea → experiment → finding → revised idea → follow-up work. Existing imports retain
+their compatibility parent and render without migration. Semantic zoom switches among an overview of questions and
+ideas, the complete working trace, and detailed evidence/run cards. Selecting an item emphasizes its incoming path,
+following branch, and immediate cross-links; the researcher can temporarily hide later steps from any selected item.
 
 The graph is an interaction surface, not only a report. The map header can start a new-question conversation.
-Selecting a question exposes Add idea; selecting an idea exposes Add experiment; and every item exposes Explore,
-Revise, and Connect. These actions open Codex with the selected item, current graph, and intended operation already
-in context. Structural changes remain conversational and require approval rather than becoming a dense form editor.
+Every item exposes Continue from here, Literature review, Chat, Revise, and Connect. Questions add ideas, ideas add
+experiments, work records findings, and work or findings create follow-up ideas. These actions open Codex with the
+selected item, current graph, and intended operation already in context. Structural changes remain conversational
+and require approval rather than becoming a dense form editor.
 
-A direction or approach records:
+A research-map item records the applicable parts of:
 
 ```text
 title
@@ -1343,10 +1353,10 @@ modifying or migrating existing files.
 **Goal:** Represent the researcher's conceptual layer, make it directly navigable into persistent terminal work,
 and expose editable rules.
 
-- Add one-line lab-note capture and explicit promotion into questions, ideas, or experiments
-- Add multiple questions, ideas, and experiments with independent status, promise, evidence strength, history,
+- Add one-line lab-note capture and explicit promotion into questions, ideas, work, or findings
+- Add multiple questions, ideas, work items, and findings with independent status, promise, evidence strength, history,
   allocation, and revisit triggers
-- Add typed question-to-idea, idea-to-experiment, support, challenge, information, dependency, and related links
+- Add typed exploration, testing, production, revision, continuation, alternative, support, challenge, information, dependency, and related links
 - Link existing claims, reports, and runs to approaches
 - Implement the local PTY session service, browser terminal dock, and `delta terminal attach`
 - Implement a thin VS Code extension that publishes active editor/tab/selection and terminal shell-integration

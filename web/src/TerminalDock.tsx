@@ -16,7 +16,8 @@ const RESEARCH_START_PROMPT = [
 const nodeKindLabels: Record<ResearchNode["kind"], string> = {
   question: "research question",
   direction: "research idea",
-  approach: "experiment",
+  approach: "research work",
+  finding: "finding",
 };
 
 function researchStartPrompt(

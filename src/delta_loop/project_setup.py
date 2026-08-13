@@ -234,7 +234,7 @@ def render_initialization_record(workspace: ProjectSnapshot, request: ProjectSet
         f"- **Question:** {_line(workspace.goal)}",
         f"- **Questions recorded:** {len([node for node in workspace.nodes if node.kind == 'question'])}",
         f"- **Ideas recorded:** {len([node for node in workspace.nodes if node.kind == 'direction'])}",
-        f"- **Experiments recorded:** {len([node for node in workspace.nodes if node.kind == 'approach'])}",
+        f"- **Research work recorded:** {len([node for node in workspace.nodes if node.kind == 'approach'])}",
         "- **Literature gate:** Each new or materially changed hypothesis must be reviewed before empirical work.",
         "",
         "### What was already tried",
