@@ -35,6 +35,18 @@ const nextStepLabels: Record<string, string> = {
   park: "Park it",
 };
 
+const evidenceOutcomeLabels: Record<Workspace["reviews"][number]["evidence_outcome"], string> = {
+  supports: "Supports idea",
+  challenges: "Evidence against",
+  inconclusive: "Inconclusive",
+  invalid: "Invalid evidence",
+  "not-applicable": "No evidence claim",
+};
+
+function isExecutionIssue(attempt: Attempt, review?: Workspace["reviews"][number]) {
+  return ["blocked", "failed", "cancelled"].includes(attempt.status) || review?.execution_validity === "invalid";
+}
+
 const relationshipLabels: Record<Workspace["research_links"][number]["relationship"], string> = {
   explores: "explores",
   tests: "tests",
@@ -390,8 +402,11 @@ function ResearchNodeCard({
   );
   const attempts = workspace.attempts.filter((attempt) => packageIds.has(attempt.package_id));
   const running = attempts.filter((attempt) => attempt.status === "running" || attempt.status === "starting").length;
-  const failed = attempts.filter((attempt) => attempt.status === "failed" || attempt.status === "cancelled").length;
-  const reviewed = attempts.filter((attempt) => workspace.reviews.some((review) => review.attempt_id === attempt.id)).length;
+  const reviews = workspace.reviews.filter((review) => attempts.some((attempt) => attempt.id === review.attempt_id));
+  const supports = reviews.filter((review) => review.evidence_outcome === "supports").length;
+  const challenges = reviews.filter((review) => review.evidence_outcome === "challenges").length;
+  const inconclusive = reviews.filter((review) => review.evidence_outcome === "inconclusive").length;
+  const blocked = attempts.filter((attempt) => isExecutionIssue(attempt, reviews.find((review) => review.attempt_id === attempt.id))).length;
   const claimIds = new Set(contextApproaches.map((item) => item.target_claim_id).filter(Boolean));
   const historical = workspace.runs.filter((run) => run.claim_id && claimIds.has(run.claim_id)).length;
   return (
@@ -410,8 +425,10 @@ function ResearchNodeCard({
       {mapLevel === 2 && node.kind === "approach" && (
         <div className="node-run-strip">
           {running > 0 && <span className="running">{running} running</span>}
-          {reviewed > 0 && <span className="worked">{reviewed} reviewed</span>}
-          {failed > 0 && <span className="failed">{failed} failed</span>}
+          {supports > 0 && <span className="supports">{supports} supports</span>}
+          {challenges > 0 && <span className="challenges">{challenges} evidence against</span>}
+          {inconclusive > 0 && <span className="inconclusive">{inconclusive} inconclusive</span>}
+          {blocked > 0 && <span className="blocked">{blocked} execution issue{blocked === 1 ? "" : "s"}</span>}
           {historical > 0 && <span>{historical} imported</span>}
           {!attempts.length && !historical && <span>Not tested</span>}
         </div>
@@ -519,17 +536,27 @@ function ResearchDetail({ node, workspace, onOpenPolicy, onSelect, onDiscuss, co
 }
 
 function RunStory({ attempt, plan, review }: { attempt: Attempt; plan?: WorkPackage; review?: Workspace["reviews"][number] }) {
-  const endedBadly = attempt.status === "failed" || attempt.status === "cancelled";
+  const endedBadly = isExecutionIssue(attempt, review);
+  const status = attempt.status === "failed" || attempt.status === "blocked"
+    ? "Execution blocked"
+    : attempt.status === "cancelled"
+      ? "Stopped"
+      : titleCase(attempt.status);
   return (
     <div className={`run-story ${attempt.status}`}>
       <div className="run-story-head">
         {endedBadly ? <XCircle size={15} /> : attempt.status === "finished" ? <CheckCircle2 size={15} /> : <Activity size={15} />}
-        <div><strong>{plan?.title ?? "Research work"}</strong><span>{titleCase(attempt.status)} · {plan ? workKindLabels[plan.work_kind] : ""}</span></div>
-        {review && <em>{review.trust_result === "yes" ? "Trusted" : review.trust_result === "no" ? "Not trusted" : "Uncertain"}</em>}
+        <div><strong>{plan?.title ?? "Research work"}</strong><span>{status} · {plan ? workKindLabels[plan.work_kind] : ""}</span></div>
+        {review && <em className={`evidence-${review.evidence_outcome}`}>{evidenceOutcomeLabels[review.evidence_outcome]}</em>}
       </div>
       {plan?.goal && <p><strong>Tested:</strong> {plan.goal}</p>}
-      {plan?.instructions && <p><strong>Method:</strong> {plan.instructions}</p>}
+      {plan?.instructions && <p><strong>Starting method:</strong> {plan.instructions}</p>}
+      {attempt.execution_history.length > 0 && (
+        <p><strong>Implementation:</strong> {attempt.execution_history.length + 1} tries inside this one research run. Latest change: {attempt.current_try_reason}</p>
+      )}
+      {review?.adaptations && <p><strong>How the method changed:</strong> {review.adaptations}</p>}
       {plan?.inputs && <p><strong>Data:</strong> {plan.inputs}</p>}
+      {review && <p><strong>Execution:</strong> {titleCase(review.execution_validity)}</p>}
       <p><strong>Result:</strong> {review?.what_it_means || attempt.output.slice(-3).join(" ") || attempt.error || "Not summarized yet."}</p>
       {review && <div className="run-next-step"><GitBranch size={13} /> {nextStepLabels[review.next_step]}</div>}
     </div>

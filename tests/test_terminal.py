@@ -224,6 +224,40 @@ def test_agent_connection_forces_a_clean_redraw_without_tmux(
     manager.close(session.id)
 
 
+def test_persistent_resize_sets_tmux_window_to_browser_size(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = TerminalManager()
+    session = manager.create("workspace", str(tmp_path), "idea-1")
+    record = manager._sessions[session.id]
+    record.tmux_session = "delta-loop-test"
+    manager._tmux = "/fake/tmux"
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs):
+        commands.append(command)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr("delta_loop.terminal.subprocess.run", run)
+
+    manager.resize(session.id, 164, 51)
+
+    assert manager._get_size(record.master_fd) == (164, 51)
+    assert commands == [[
+        "/fake/tmux",
+        "resize-window",
+        "-x",
+        "164",
+        "-y",
+        "51",
+        "-t",
+        "delta-loop-test:0",
+    ]]
+    record.tmux_session = None
+    manager.close(session.id)
+
+
 def test_default_agent_can_manage_git_and_paths_outside_the_project() -> None:
     assert "--dangerously-bypass-approvals-and-sandbox" in DEFAULT_AGENT_COMMAND
     assert "--enable goals" in DEFAULT_AGENT_COMMAND

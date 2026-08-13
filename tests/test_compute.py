@@ -451,7 +451,7 @@ def test_remote_compute_settings_check_and_run_over_ssh(
         for _ in range(80):
             current = client.get(f"/api/workspaces/{workspace_id}").json()
             attempt = next(item for item in current["attempts"] if item["id"] == run_id)
-            if attempt["status"] in {"finished", "failed"}:
+            if attempt["status"] in {"finished", "blocked", "failed"}:
                 break
             time.sleep(0.05)
 
@@ -465,9 +465,37 @@ def test_remote_compute_settings_check_and_run_over_ssh(
         assert attempt["remote_record_directory"] == f"~/.delta-loop/runs/{run_id}"
         assert (remote_record / "PLAN.md").is_file()
         assert (remote_record / "run.log").is_file()
-        assert (remote_record / "output" / "proof.txt").read_text() == "0"
-        assert (remote_record / "output" / "placeholder.txt").read_text() == "placeholder-ok"
+        assert (remote_record / "output" / "try-1" / "proof.txt").read_text() == "0"
+        assert (remote_record / "output" / "try-1" / "placeholder.txt").read_text() == "placeholder-ok"
         assert Path(attempt["handoff_file"]).is_file()
+
+        retried = client.post(
+            f"/api/workspaces/{workspace_id}/runs/{run_id}/retry",
+            json={
+                "command": "python3 -c \"print('remote-retry-ok')\"",
+                "reason": "Adjusted the implementation while preserving the same remote smoke test.",
+            },
+        )
+        assert retried.status_code == 200
+        retried_current = retried.json()
+        for _ in range(80):
+            retried_current = client.get(f"/api/workspaces/{workspace_id}").json()
+            retried_attempt = next(
+                item for item in retried_current["attempts"] if item["id"] == run_id
+            )
+            if retried_attempt["status"] in {"finished", "blocked", "failed"}:
+                break
+            time.sleep(0.05)
+        retried_attempt = next(
+            item for item in retried_current["attempts"] if item["id"] == run_id
+        )
+        assert retried_attempt["status"] == "finished", retried_attempt.get("error")
+        assert "remote-retry-ok" in retried_attempt["output"]
+        assert len(retried_current["attempts"]) == 1
+        assert len(retried_attempt["execution_history"]) == 1
+        assert "remote-run-ok" in retried_attempt["execution_history"][0]["output_tail"]
+        assert retried_attempt["remote_output_directory"].endswith("/output/try-2")
+        assert retried_attempt["execution_history"][0]["remote_output_directory"].endswith("/output/try-1")
 
     # A fresh API process can recover a remote job from the files on the server.
     stored = app.state.store.get(workspace_id)
@@ -484,7 +512,7 @@ def test_remote_compute_settings_check_and_run_over_ssh(
         recovered = client.get(f"/api/workspaces/{workspace_id}").json()
     recovered_attempt = next(item for item in recovered["attempts"] if item["id"] == run_id)
     assert recovered_attempt["status"] == "finished"
-    assert "remote-run-ok" in recovered_attempt["output"]
+    assert "remote-retry-ok" in recovered_attempt["output"]
 
 
 def test_remote_compute_does_not_store_credentials(tmp_path: Path) -> None:

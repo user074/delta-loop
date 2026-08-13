@@ -48,6 +48,7 @@ from .models import (
     RemoteProjectInspection,
     RemoteProjectReadRequest,
     RemoteProjectReading,
+    RetryRunRequest,
     ResultReview,
     ResultReviewRequest,
     RulesDraftRequest,
@@ -810,6 +811,35 @@ def create_app(
         )
         if not approach:
             raise HTTPException(status_code=404, detail="Choose a way to test an idea first.")
+        existing_packages = [
+            package for package in workspace.packages if package.approach_id == approach.id
+        ]
+        if existing_packages:
+            package_ids = {package.id for package in existing_packages}
+            latest_attempt = next(
+                (
+                    attempt
+                    for attempt in reversed(workspace.attempts)
+                    if attempt.package_id in package_ids
+                ),
+                None,
+            )
+            is_reviewed = bool(
+                latest_attempt
+                and any(
+                    review.attempt_id == latest_attempt.id
+                    for review in workspace.reviews
+                )
+            )
+            if latest_attempt and not is_reviewed:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"This idea already has unresolved research run {latest_attempt.id}. "
+                        "Repair it with `delta work retry` instead of creating another run, "
+                        "or review it after it produces real evidence."
+                    ),
+                )
         profile = protocols[approach.protocol_id or workspace.protocol_id]
         stage_id = request.stage or approach.current_stage or profile.stages[0].id
         stage = next((item for item in profile.stages if item.id == stage_id), profile.stages[0])
@@ -837,7 +867,7 @@ def create_app(
         if not package:
             raise HTTPException(status_code=404, detail="Plan not found.")
         if package.status != "draft":
-            raise HTTPException(status_code=409, detail="Approved plans cannot be edited. Make a new plan instead.")
+            raise HTTPException(status_code=409, detail="A running test brief cannot be edited here. Let the worker record implementation adaptations, or make a new brief if the scientific question changes.")
         for field, value in patch.model_dump(exclude_none=True).items():
             setattr(package, field, value)
         package.updated_at = now_iso()
@@ -881,6 +911,16 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return workspace_or_404(workspace_id)
 
+    @app.post("/api/workspaces/{workspace_id}/runs/{attempt_id}/retry", response_model=ProjectSnapshot)
+    def retry_run(
+        workspace_id: str, attempt_id: str, request: RetryRunRequest
+    ) -> ProjectSnapshot:
+        try:
+            runner.retry(workspace_id, attempt_id, request.command, request.reason)
+        except RunFailure as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return workspace_or_404(workspace_id)
+
     @app.post("/api/workspaces/{workspace_id}/runs/{attempt_id}/review", response_model=ProjectSnapshot)
     def review_result(
         workspace_id: str, attempt_id: str, request: ResultReviewRequest
@@ -889,10 +929,21 @@ def create_app(
         attempt = next((item for item in workspace.attempts if item.id == attempt_id), None)
         if not attempt:
             raise HTTPException(status_code=404, detail="Run not found.")
-        if attempt.status not in {"finished", "failed", "cancelled"}:
+        if attempt.status not in {"finished", "blocked", "failed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Wait until the run ends before reviewing it.")
         if any(review.attempt_id == attempt_id for review in workspace.reviews):
             raise HTTPException(status_code=409, detail="This run has already been reviewed.")
+        if (
+            request.evidence_outcome in {"supports", "challenges"}
+            and request.execution_validity not in {"valid", "partly-valid"}
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Only a valid or partly valid execution can support or challenge an idea. "
+                    "Record a broken or unusable run as invalid instead."
+                ),
+            )
         review = ResultReview(
             id=f"review-{uuid4().hex[:10]}",
             attempt_id=attempt_id,
@@ -904,6 +955,9 @@ def create_app(
             (item for item in workspace.nodes if package and item.id == package.approach_id),
             None,
         )
+        if node:
+            outcome = request.evidence_outcome
+            node.outcome_counts[outcome] = node.outcome_counts.get(outcome, 0) + 1
         if node and request.next_step == "park":
             node.status = "dormant"
         elif node and request.next_step == "go-deeper":
@@ -1072,7 +1126,8 @@ def create_app(
                     terminals.write(session_id, text.encode())
                     continue
                 if payload.get("type") == "resize":
-                    terminals.resize(
+                    await asyncio.to_thread(
+                        terminals.resize,
                         session_id,
                         int(payload.get("columns", 100)),
                         int(payload.get("rows", 28)),

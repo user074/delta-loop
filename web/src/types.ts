@@ -127,7 +127,7 @@ export interface WorkPackage {
   do_not_change: string;
   command: string;
   budget: string;
-  status: "draft" | "ready" | "running" | "finished" | "failed" | "cancelled";
+  status: "draft" | "ready" | "running" | "finished" | "blocked" | "failed" | "cancelled";
   version: number;
   created_at: string;
   updated_at: string;
@@ -146,7 +146,7 @@ export interface Attempt {
   record_directory: string;
   handoff_file: string;
   output_directory: string;
-  status: "starting" | "running" | "finished" | "failed" | "cancelled";
+  status: "starting" | "running" | "finished" | "blocked" | "failed" | "cancelled";
   pid: number | null;
   started_at: string;
   finished_at: string | null;
@@ -159,6 +159,21 @@ export interface Attempt {
   remote_record_directory: string;
   remote_output_directory: string;
   last_checked_at: string;
+  current_try_reason: string;
+  current_try_started_at: string;
+  execution_history: Array<{
+    number: number;
+    command: string[];
+    reason: string;
+    status: Attempt["status"];
+    started_at: string;
+    finished_at: string | null;
+    exit_code: number | null;
+    output_tail: string[];
+    error: string | null;
+    output_directory: string;
+    remote_output_directory: string;
+  }>;
 }
 
 export interface ComputeConfig {
@@ -277,6 +292,9 @@ export interface ResultReview {
   attempt_id: string;
   followed_plan: "yes" | "no" | "unsure";
   trust_result: "yes" | "no" | "unsure";
+  execution_validity: "valid" | "partly-valid" | "invalid" | "unsure";
+  evidence_outcome: "supports" | "challenges" | "inconclusive" | "invalid" | "not-applicable";
+  adaptations: string;
   what_it_means: string;
   next_step: "go-deeper" | "run-again" | "change-test" | "try-another" | "park";
   notes: string;

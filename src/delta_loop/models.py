@@ -24,8 +24,12 @@ NodeStatus = Literal["primary", "active", "dormant", "closed"]
 Promise = Literal["high", "medium", "low", "unassessed"]
 EvidenceStrength = Literal["strong", "mixed", "weak", "none"]
 StageAction = Literal["promote", "repeat", "revise", "redirect", "stop"]
-PackageStatus = Literal["draft", "ready", "running", "finished", "failed", "cancelled"]
-AttemptStatus = Literal["starting", "running", "finished", "failed", "cancelled"]
+# `failed` remains readable for stored POC records. New execution problems use
+# `blocked`; scientific evidence is classified independently in ResultReview.
+PackageStatus = Literal["draft", "ready", "running", "finished", "blocked", "failed", "cancelled"]
+AttemptStatus = Literal["starting", "running", "finished", "blocked", "failed", "cancelled"]
+ExecutionValidity = Literal["valid", "partly-valid", "invalid", "unsure"]
+EvidenceOutcome = Literal["supports", "challenges", "inconclusive", "invalid", "not-applicable"]
 WorkKind = Literal[
     "quick-test",
     "replicate",
@@ -196,6 +200,22 @@ class WorkPackage(BaseModel):
     ask_before: str = ""
 
 
+class ExecutionTry(BaseModel):
+    """One implementation-level launch inside a single scientific run."""
+
+    number: int
+    command: list[str]
+    reason: str = ""
+    status: AttemptStatus
+    started_at: str
+    finished_at: str | None = None
+    exit_code: int | None = None
+    output_tail: list[str] = Field(default_factory=list)
+    error: str | None = None
+    output_directory: str = ""
+    remote_output_directory: str = ""
+
+
 class Attempt(BaseModel):
     id: str
     package_id: str
@@ -217,13 +237,21 @@ class Attempt(BaseModel):
     remote_record_directory: str = ""
     remote_output_directory: str = ""
     last_checked_at: str = ""
+    current_try_reason: str = "Starting implementation"
+    current_try_started_at: str = Field(default_factory=now_iso)
+    execution_history: list[ExecutionTry] = Field(default_factory=list)
 
 
 class ResultReview(BaseModel):
     id: str
     attempt_id: str
-    followed_plan: Literal["yes", "no", "unsure"]
+    # Retained for compatibility with older project records. Whether the
+    # starting method changed is no longer a scientific outcome.
+    followed_plan: Literal["yes", "no", "unsure"] = "unsure"
     trust_result: Literal["yes", "no", "unsure"]
+    execution_validity: ExecutionValidity = "unsure"
+    evidence_outcome: EvidenceOutcome = "inconclusive"
+    adaptations: str = ""
     what_it_means: str = ""
     next_step: Literal["go-deeper", "run-again", "change-test", "try-another", "park"]
     notes: str = ""
@@ -590,9 +618,17 @@ class WorkPackagePatch(BaseModel):
     budget: str | None = None
 
 
+class RetryRunRequest(BaseModel):
+    command: str
+    reason: str
+
+
 class ResultReviewRequest(BaseModel):
-    followed_plan: Literal["yes", "no", "unsure"]
+    followed_plan: Literal["yes", "no", "unsure"] = "unsure"
     trust_result: Literal["yes", "no", "unsure"]
+    execution_validity: ExecutionValidity = "unsure"
+    evidence_outcome: EvidenceOutcome = "inconclusive"
+    adaptations: str = ""
     what_it_means: str = ""
     next_step: Literal["go-deeper", "run-again", "change-test", "try-another", "park"]
     notes: str = ""

@@ -51,17 +51,18 @@ This table is the product requirements document for the POC. A proposed feature 
 | Detailed audit trail | `PLAN.md`, `REPORT.md`, `RUNS/`, logs, metrics, plots, and Git history preserve details. | Details are available, but reconstructing the important story requires opening many files. | Keep details as the audit layer; add a PI briefing and drill-down links rather than replacing the source artifacts. |
 | Human-facing summary | `SYNTHESIS.md` provides a narrative summary. | Better than raw reports, but still a static text projection with weak navigation and no control. | Render a visual briefing organized around conceptual changes, surprises, failures, decisions, and resource allocation. |
 | Starting setup | `delta-research` uses `INIT.md` to inspect the project, interview the researcher, verify the environment, agree on permissions, ground seed hypotheses in literature, and create `STATE.md`, `SYNTHESIS.md`, `INFRA.md`, and research folders. | Constrained agents with concrete code, data, libraries, and baselines are much more effective than an unconstrained research prompt. The old Markdown-only setup is hard to inspect or revise, and a shallow one-pass scan misses important prior work and project structure. | Make this a Codex-led, researcher-approved starting review in Delta Loop. Inspect local or remote code read-only; propose high-level questions, a few mid-level ideas, and concrete experiments; record prior work and reusable inputs; require real compute and Git checks; agree on success, stopping, budget, permissions, and constraints; then generate the initial research files without overwriting existing `INFRA.md` or `SYNTHESIS.md`. Save the approved starting setup as structured state and `.delta-loop/INITIALIZATION.md`, and show it on Home. |
-| Research planning | The supervisor selects a high-value delta and writes a detailed plan. | The agent can propose plausible experiments that do not match the researcher's intended ablation, comparison, metric, or scientific taste, but requiring approval for every plan leaves unattended research idle. | Let the researcher encode objective, controls, exclusions, taste, success, and hard stop rules before the run. During a continuous run, the supervisor makes and records plan-level choices under that policy without waiting between cycles. |
+| Research planning | The supervisor selects a high-value delta and writes a detailed plan. | The starting implementation often needs to change after the worker sees the code, data, or first error. Treating that normal adaptation as a failed plan confuses execution history with scientific evidence. | Save a flexible test brief: the idea, comparison meaning, measurement, resource limits, and prohibitions are the protected boundaries; the method, code, command, and intermediate steps are a starting point. Record the final method and adaptations without calling them failure. |
 | Research protocol | Delta provides a common loop and package conventions. | Researchers differ in how they implement, ablate, and escalate experiments. One researcher may prefer the cheapest discriminating probe first and do a full investigation only after seeing signal; another may require replication or a complete benchmark before branching. | Import the Delta cycle as ordered policy steps, then let researchers edit those steps and add selectable investigation profiles without rewriting a long Markdown prompt. |
-| Plan mutability | Plans are durable and increasingly constrained by templates. | Changing or adding rules during work is cumbersome and can be lost in conversation context. | Make the loop itself and its project-, idea-, and package-level rules editable through checked versions. Sealed packages retain the version they received. |
+| Plan mutability | Plans are durable and increasingly constrained by templates. | A rigid plan prevents the worker from repairing or replacing an implementation that does not work. It can also create a false “failure” even when the revised method tests the same idea correctly. | Keep the original test brief for audit, but let the worker adapt implementation inside the scientific and policy boundaries. Create a linked revised test only when the idea, comparison meaning, or measurement changes. Keep loop and policy rules editable through checked versions. |
 | Autonomy | The loop can choose the next frontier item and continue until an interrupt boundary. | Approval boundaries still stop the supervisor after a plan, result, ambiguous choice, or proposed larger study. If the researcher is away, useful progress ends. | **Start research** creates a durable Codex goal. The supervisor chooses, runs, reviews, records, and begins the next evidence-producing cycle without routine approval. It uses the smallest discriminating test when uncertain and redirects when one path is blocked. It stops only at saved success, stop, compute, budget, prohibition, access, or no-useful-work boundaries. |
 | Supervisor interaction | The terminal agent acts as supervisor and spawns workers. | One long conversation is high bandwidth and natural, but planning, execution, and delegation become entangled. | Keep a persistent interactive supervisor terminal, but make it attachable from the UI and scope it to the selected direction, approach, or package. Give it a file/CLI protocol for proposing package and state changes. |
-| Worker handoff | A worker receives a plan and returns a report. | This is valuable, but subagent ownership and intermediate decisions are often opaque. | Make the sealed work package and attempt first-class. Show exact scope, worker, status, deviations, result, and escalation without exposing every private reasoning token. |
+| Worker handoff | A worker receives a plan and returns a report. | This is valuable, but subagent ownership and intermediate decisions are often opaque. | Make the test brief and attempt first-class. Show the protected scientific boundaries, starting method, final method, adaptations, execution validity, evidence result, and escalation without exposing every private reasoning token. |
 | Parallelism | One supervisor may spawn subagents, often sequentially or opaquely. | Terminal use encourages one primary agent and sequential tasks even when independent analyses could run in parallel. | Let the researcher explicitly seal, queue, and launch up to two independent packages. Parallelism is package-based, not an invisible subagent tree. |
 | Research evolution | Beliefs and frontier entries change after experiments. | An approach may become dormant rather than rejected and later become promising again. The reason for switching is important. | Record direction and approach activation, dormancy, reopening, rationale, evidence summary, invested effort, typed relationships, and revisit condition. |
 | Lab-note capture | Research ideas are usually added by editing state or telling the agent. | A new direction may begin as one sentence in a lab note. Requiring a full hypothesis or package too early creates friction and loses speculative ideas. | Add one-line quick capture for a direction, approach, observation, or question. It appears immediately in the map as an unstructured note and may be enriched later without a model call. |
 | Promise versus evidence | Confidence and frontier rank partially mix scientific support with what deserves attention next. | A weakly supported direction may still be promising; a well-supported result may have low priority. | Display three separate signals: activity status, human-rated promise/priority, and evidence strength. Never infer one from another. |
-| Review semantics | A report proposes a verdict and belief update. | Method validity, observed result, scientific interpretation, and code quality are different judgments. | Separate execution review, observation acceptance, interpretation, belief update, and optional code integration. |
+| Review semantics | A report proposes a verdict and belief update. | Method validity, observed result, scientific interpretation, and code quality are different judgments. A changed method is not evidence against an idea. | Separate execution validity, implementation adaptations, evidence outcome, interpretation, belief update, and optional code integration. Only trustworthy evidence can support or challenge an idea; broken execution is invalid or blocked. |
+| Research-run counting | Each command launch can become another attempt or package. | Agents can appear busy by making a minor edit, starting another run, failing again, and growing the ledger without ever testing the idea. This is fake progress and makes the research map less useful. | Define one research run as one attempt to answer one scientific question. Command launches, debugging, setup repair, and implementation retries are nested execution tries under the same run ID. Reject another unresolved run for the same work. A new run requires a reviewed result or a material change to the idea, comparison, or measurement. |
 | Terminal workflow | The existing system works directly in the repository through agent tools and shell commands. | The terminal remains best for debugging, code inspection, commands, SLURM, and interactive collaboration, but it is visually disconnected from the research arc. | Make terminal sessions first-class and link them to directions, approaches, packages, and attempts. Clicking a node opens or reattaches its session; the same session can be attached from the browser or a local/VS Code terminal. |
 | Codex file and Git access | A managed Codex chat can be started without command-by-command approval while still using a project-only filesystem sandbox. | The project-only sandbox cannot write protected Git metadata or reach every SSH, environment, and remote-project path needed for real research work. Codex can discuss Git policy but cannot carry out an approved commit. | Start managed Codex chats with full machine access so they can work in the actual local or remote repository. Keep this technical access separate from behavioral permission: enabled Git policy decides when Codex may stage, commit, or push, and push remains a separate choice. Allow deployments to replace the launch command when a stricter external boundary is required. |
 | Compute location | Research code may live on a workstation or a remote GPU server. `delta-research` records infrastructure and follows a probe-then-interview setup: commands reveal hardware and software facts, while the researcher supplies storage policy, appropriate resources, and cluster or lab conventions. | On a server without SLURM, the researcher wants Delta Loop to remain local while approved commands run remotely. The agent must not guess the host, project path, environment, GPUs, storage policy, or safe concurrency, and the researcher should not have to manually transcribe everything into a form. | Make agent-led setup the main path. Run one bounded read-only probe; show detected facts separately from human choices; ask one short round at a time about the environment, storage, GPU and concurrency limits, login-node restrictions, Git, data, and lab rules; save only after confirmation; then validate the exact setup. Freeze the chosen location into every attempt, launch a persistent remote process, reconnect to status and logs, and show the remote output path. Keep manual fields as an advanced fallback and never store SSH credentials. Provide a safe reset that clears the saved location and inspection while preserving research files, run history, and results. |
@@ -105,18 +106,18 @@ Workers own bounded execution:
 - Implementation details within declared authority
 - Running, debugging, plotting, and routine analysis
 - Local recovery that does not change the scientific question
-- Producing auditable results and surfacing deviations
+- Producing auditable results and recording implementation adaptations
 
 ### POC hypotheses
 
 | ID | Hypothesis | Evidence required |
 |---|---|---|
-| H1 | Structured supervisor-to-worker handoffs reduce rework caused by misunderstood research intent. | Compare package revisions, deviations, and discarded work with recent terminal-only work. |
+| H1 | Structured supervisor-to-worker handoffs reduce rework caused by misunderstood research intent. | Compare scientific-scope revisions, implementation adaptations, and discarded work with recent terminal-only work. |
 | H2 | A research-arc view reduces the time needed to reconstruct why the project is pursuing its current approach. | The researcher can explain current direction, dormant alternatives, and revisit triggers in under five minutes after time away. |
 | H3 | A companion UI improves awareness without replacing the terminal or interactive supervisor conversation. | The researcher uses the UI for state, review, steering, and drill-down while continuing substantive conversation and debugging in the preferred IDE/terminal. |
 | H4 | Explicit token and progress accounting prevents meta-work from dominating real work. | Most agent expenditure produces native research artifacts, experiments, analysis, or accepted evidence; overhead stays within the configured budget. |
 | H5 | Package-level parallelism increases useful throughput without hiding ownership or scientific decisions. | Two independent packages can run concurrently and return separately reviewable results without corrupting state or silently changing scope. |
-| H6 | A visual research map linked directly to persistent terminals makes switching among directions easier without weakening interactive collaboration. | The researcher can capture a lightweight idea, click into an approach, resume its terminal context, inspect what worked or failed, and switch back without a fresh model session or manual context reconstruction. |
+| H6 | A visual research map linked directly to persistent terminals makes switching among directions easier without weakening interactive collaboration. | The researcher can capture a lightweight idea, click into an approach, resume its terminal context, distinguish supporting or challenging evidence from blocked execution, and switch back without a fresh model session or manual context reconstruction. |
 | H7 | Researchers can safely evolve the Delta harness when rules, templates, or delegation policies prove inadequate. | A researcher can change one rule, see every affected rendered prompt and package, pass deterministic and fixed-scenario tests, canary it on one package, observe whether it fired, and roll back without asking an agent to rewrite the harness. |
 | H8 | Explicit researcher-specific investigation protocols produce better-scoped work than one universal experimental loop. | The researcher can encode a fast-signal-first protocol, apply it to one approach, and let the supervisor make and record evidence-based promote, repeat, redirect, or park decisions without silently exceeding the saved limits. |
 | H9 | A durable continuous goal can advance research while the researcher is away without becoming unbounded. | The supervisor completes multiple evidence-producing cycles without routine approval, records why it chose and promoted work, stays inside saved limits, and stops only for a concrete hard condition. |
@@ -165,7 +166,7 @@ flowchart TB
     T <--> S["Supervisor<br/>Codex / Claude / shell"]
     S -->|"propose structured diff"| K["Delta kernel + files"]
     UI -->|"edit, approve, seal, launch, review"| K
-    K -->|"sealed handoff"| R["Saved compute location<br/>local process or SSH server"]
+    K -->|"saved test brief"| R["Saved compute location<br/>local process or SSH server"]
     R --> W1["Bounded worker A"]
     R --> W2["Bounded worker B"]
     W1 -->|"events + result manifest"| K
@@ -203,7 +204,7 @@ during onboarding. The agent does not spend a turn asking which of these two pat
 
 Delta Loop imports the concrete cycle from
 [user074/delta-research](https://github.com/user074/delta-research): read the current state, select grounded work,
-seal a plan, give it to a bounded worker, check the result, update research memory, and save or continue. These are
+save a flexible test brief, give it to a bounded worker, check the result, update research memory, and save or continue. These are
 ordinary ordered policy entries inside Delta Loop. The researcher may rename, reorder, disable, replace, or add
 steps through a checked version.
 
@@ -231,7 +232,8 @@ For the POC:
    file-outbox protocol.
 6. The UI immediately displays the proposed diff while preserving the terminal conversation.
 7. The researcher accepts, rejects, or directly edits fields.
-8. Only sealed packages are sent to bounded workers, which may use non-interactive execution.
+8. Only saved test briefs are sent to bounded workers. Their scientific and policy boundaries are fixed, while
+   implementation may adapt during non-interactive execution.
 
 Non-interactive CLI execution is appropriate for bounded workers because the handoff is explicit and the worker
 is expected to return a result rather than sustain a collaborative conversation.
@@ -300,11 +302,11 @@ click Direction A
   → expose Direction A's context bundle
 
 click Approach A2
-  → show why it is promising, active work, nulls, failures, and open questions
+  → show why it is promising, supporting or challenging evidence, inconclusive results, execution issues, and open questions
   → focus A2's terminal tab or create one
 
 click D017
-  → show sealed handoff, live attempt, events, artifacts, and review
+  → show saved test brief, implementation adaptations, live attempt, events, artifacts, and evidence review
   → open worker output or the associated recovery terminal
 ```
 
@@ -348,7 +350,7 @@ flowchart LR
     end
 ```
 
-The continuous loop may run for a long time, recover routine failures, choose comparisons and measurements, record
+The continuous loop may run for a long time, recover routine execution blockers, choose comparisons and measurements, record
 working interpretations, promote promising results, and redirect among eligible paths. It keeps the saved main
 question stable; evidence for a different framing becomes a connected question for later review rather than a
 reason to stop unattended work.
@@ -368,7 +370,7 @@ The default screen answers:
 
 - What changed conceptually since the last review?
 - What produced accepted evidence?
-- What was attempted but failed, was rejected, or remains invalid?
+- Which valid results challenged an idea, and which attempts were blocked or invalid before producing evidence?
 - What was surprising relative to predictions?
 - Which approaches gained or lost priority, and why?
 - Where did human time, agent time, tokens, and compute go?
@@ -447,7 +449,7 @@ revisit trigger
 typed relationships
 accepted evidence summary
 contradicting evidence summary
-worked / null / failed / blocked outcome counts
+supports / challenges / inconclusive / invalid-or-blocked outcome counts
 human time, worker time, tokens, and compute
 linked packages
 linked terminal sessions
@@ -489,7 +491,7 @@ The map should answer the main PI questions at a glance:
 - Border/state treatment: primary, active, dormant, or closed
 - Promise badge: human-rated high, medium, low, or unassessed
 - Evidence bar: strong, mixed, weak, or none
-- Outcome strip: worked, null, failed, and blocked package counts
+- Outcome strip: supporting, challenging, inconclusive, and invalid-or-blocked attempt counts
 - Active pulse: a worker or interactive terminal is currently operating in this context
 - Edge label: alternative, dependency, derivation, or evidence relationship
 
@@ -531,8 +533,10 @@ The Handoff screen is a structured specification editor, not a chat window. A pa
 - Applicable project, arc, and package policy versions
 
 Supervisor proposals appear as field-level diffs. The researcher may accept individual changes, reject them, or
-edit directly. Sealing produces an immutable package version. Any scientific change after sealing creates a new
-version; a routine execution repair is recorded on the attempt without rewriting the package.
+edit directly. Saving preserves the initial test brief for provenance. The worker may change code, commands,
+implementation details, and intermediate steps while preserving the idea, comparison meaning, measurement,
+resource limits, and explicit prohibitions. These adaptations are recorded on the attempt and are not failures.
+A change to the protected scientific intent creates a linked revised test.
 
 ### 7.4 Work and Review
 
@@ -546,28 +550,30 @@ D019  cross-method control          ready         unassigned
 
 Opening a package shows:
 
-- Sealed handoff and applicable policies
+- Saved test brief and applicable policies
 - Attempt and worker identity
 - Attached supervisor, worker-output, or recovery terminal sessions
 - Current concrete operation
 - Elapsed time, token use, compute use, and latest heartbeat
 - Tool/process events with full logs expandable
 - Produced code, metrics, plots, reports, and other artifacts
-- Deviations and repairs
+- Final method, adaptations, and repairs
+- Nested implementation tries, collapsed by default and explicitly labeled as one research run
 - Worker questions and escalation context
 - Verification results
 - Review decisions and follow-up packages
 
 Review is separated into:
 
-1. **Execution validity:** Was the sealed method followed, and are the artifacts reproducible?
-2. **Observation acceptance:** Are the measured results trustworthy?
-3. **Interpretation:** What does the observation support, contradict, or leave unresolved?
+1. **Execution validity:** Did the final method produce usable, reproducible evidence?
+2. **Implementation adaptations:** How did the final method differ from the starting method, and why?
+3. **Evidence outcome:** Does trustworthy evidence support the idea, challenge it, or remain inconclusive?
 4. **Research update:** Which beliefs, arcs, approaches, or priorities change?
 5. **Code integration:** Should any engineering change be retained or merged?
 
-These decisions may have different outcomes. A valid null result can be accepted without supporting the tested
-hypothesis. Trustworthy evidence can be accepted while interpretation remains deferred.
+These decisions may have different outcomes. A valid null result can challenge an idea or remain inconclusive.
+A changed implementation is neutral. A command error, missing dependency, or unusable output is blocked or invalid
+execution and must never increment the evidence-against count.
 
 The terminal dock can be opened from a package without leaving review. Worker terminals are read-only by default;
 an explicit **Take over for recovery** action creates or attaches an interactive session and records that human or
@@ -804,8 +810,10 @@ The persistent, versioned handoff contract. Only a sealed package may be delegat
 
 ### Attempt
 
-One execution of one sealed package version. It records the worker, code revision or worktree, run directory,
-budgets, timestamps, token usage, compute use, events, repairs, exit condition, and retry relationship.
+One research run: one attempt to answer the scientific question in a saved test brief. It records the worker, code
+revision or worktree, run directory, budgets, timestamps, token usage, compute use, final evidence status, and a
+nested history of implementation tries. A changed command, path fix, dependency repair, debugging pass, or minor
+code edit updates this same Attempt; it does not create another Attempt or count as another piece of research.
 
 ### TerminalSession
 
@@ -838,10 +846,11 @@ research artifact.
 A machine-validated index over the human-readable report and native artifacts:
 
 ```text
-outcome: completed | partial | failed | blocked
+execution: valid | partly-valid | invalid | blocked
+evidence: supports | challenges | inconclusive | not-applicable
 summary
 work_performed
-deviations
+adaptations
 observations
 verification
 artifacts
@@ -1175,11 +1184,9 @@ The UI reports tokens, elapsed time, and outcomes by class and package.
 
 The following count as progress:
 
-- A sealed research package that resolves material ambiguity and is accepted by the researcher
-- Code, data, plots, metrics, or a report produced for a real research objective
-- An experiment launched or completed with registered provenance
-- A trustworthy positive, negative, partial, or null observation
-- A blocker resolved
+- Code, data, plots, metrics, or a report that materially advances a real research objective
+- A completed test with a trustworthy positive, negative, partial, or null observation
+- A blocker resolved when that resolution enables or completes the real scientific test
 - A claim, approach, or allocation changed because of accepted evidence
 
 The following do not count as research progress by themselves:
@@ -1188,6 +1195,9 @@ The following do not count as research progress by themselves:
 - Heartbeats
 - Re-reading unchanged project context
 - Rehearsing the orchestration loop
+- Launching a command or creating a run record
+- Retrying a command, fixing a path, changing a batch size, repairing setup, or making another minor implementation edit
+- Creating another package or run before the current scientific test produces evidence or reaches a genuine hard boundary
 - Repairing a schema that deterministic validation could have caught
 - Running broad harness tests unrelated to the current change
 - Creating more frontier items without new evidence or human direction
@@ -1539,10 +1549,12 @@ The POC is successful only if all of the following are true:
     recovery session and audit event.
 24. A result is reviewed separately for execution validity, observation trustworthiness, interpretation, research
     update, and code integration.
-25. Failed, partial, negative, and rejected work remains visible in history and resource accounting.
+25. Blocked or invalid execution, inconclusive evidence, challenging evidence, and rejected interpretations remain
+    visible as separate states in history and resource accounting.
 26. Every accepted observation traces to the sealed package, attempt, code revision, environment, report, and
     artifacts.
-27. The researcher can reconstruct what changed, what failed, why direction changed, and what needs judgment in
+27. The researcher can reconstruct how methods changed, which executions were blocked, what the evidence said,
+    why direction changed, and what needs judgment in
     under five minutes.
 28. Token and time usage is visible by role; deterministic checks do not invoke models.
 29. No-progress and overhead warnings fire on a controlled fixture and do not mistake narration or harness repair
@@ -1560,6 +1572,11 @@ The POC is successful only if all of the following are true:
     the primary metric differs in the predicted direction.
 35. After review, the researcher can explicitly promote, repeat, revise, redirect, or stop. Delta records the
     rationale and never launches a higher-cost stage merely because a result crossed a metric threshold.
+36. A broken command can be repaired repeatedly under one research-run ID, with each implementation try auditable
+    but only one run shown in research counts; try-specific output folders prevent stale artifacts from appearing
+    to belong to a repaired execution.
+37. Delta rejects a second unresolved run for the same work and directs the agent to repair the existing run; a
+    new run requires reviewed evidence or a material change to the scientific test.
 
 ## 18. Metrics
 
@@ -1567,7 +1584,9 @@ The POC is successful only if all of the following are true:
 
 - Human minutes from fuzzy idea to sealed package
 - Rework caused by misunderstood intent
-- Fraction of attempts producing accepted observations or useful engineering artifacts
+- Fraction of research runs producing accepted observations or useful engineering artifacts
+- Implementation tries per completed scientific test, shown as overhead rather than progress
+- Unresolved duplicate runs for the same scientific test; the target is zero
 - Time to reconstruct the research direction after an absence
 - Number of approach switches with recorded rationale and revisit condition
 - Time from one-line note to a navigable direction or approach
@@ -1587,9 +1606,10 @@ The POC is successful only if all of the following are true:
 
 ### Delegation quality
 
-- Material deviations from sealed packages
+- Material changes to protected scientific intent
+- Implementation adaptations correctly kept inside the original research run
 - Decisions correctly escalated versus silently made
-- Packages revised, retried, rejected, or abandoned
+- Research runs revised, rejected, or abandoned after internal implementation retries
 - Parallel packages completed without state or artifact conflict
 - Time waiting for human input versus continuing independent work
 
@@ -1692,7 +1712,7 @@ The first slice should touch a real project within the first week:
     stronger controls, ablations, budget, and evidence requirements of that stage; it does not launch it.
 21. The researcher activates or rejects `H002` based on the scenario results, canary trace, and handoff outcome;
     rollback does not change `D001`'s recorded snapshot.
-22. The Briefing and Research map show the protocol trajectory, conceptual change, failed or unresolved work,
+22. The Briefing and Research map show the protocol trajectory, conceptual change, challenging or unresolved evidence, blocked execution,
     resource use, direction promise, evidence strength, and next decision.
 
 Only after this real slice works should the POC add a second worker, worktree isolation, automated briefing

@@ -2,7 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Box, ChevronDown, ChevronUp, Maximize2, MessageCircle, Minimize2, Plus, Power, SquareTerminal, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from "./api";
 import type { DiscussionRequest } from "./discussions";
 import type { AppPage, ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
@@ -30,9 +30,9 @@ function researchStartPrompt(
     `/goal Advance the research question through repeated evidence-producing cycles without waiting for the researcher. Keep working until ${success}, ${stop}, or ${budget} is exhausted.`,
     `Main research question: ${oneLine(workspace.goal)}`,
     oneLine(focusInstruction),
-    "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md. Use `delta work start` for execution, follow each run to completion, check the result, update the research memory and map, and immediately begin the next useful cycle.",
+    "Run `delta context` and `delta compute show`, then follow the active LOOP.md and POLICY.md. Use `delta work start` once for a scientific test. Repair commands or implementation with `delta work retry` under that same run ID until it produces usable evidence or reaches a hard boundary. Then review the result, update the research memory and map, and immediately begin the next useful cycle.",
     "Do not ask for approval of plans, scientific choices, routine implementation or debugging, result interpretation, map updates, replication, or promotion to a larger study. Make the best policy-compliant choice and record the reason.",
-    "When uncertain, run the smallest safe test that can distinguish the options. If a path fails or is blocked, record why, park or revise it when appropriate, and continue with another eligible path.",
+    "When uncertain, run the smallest safe test that can distinguish the options. Do not inflate progress with new runs for minor edits, setup mistakes, or command repairs; these are implementation tries inside the same research run. Only a real scientific result or an exhausted hard boundary ends a run.",
     "Stop only for the saved success or stop condition, an exhausted compute or budget limit, a necessary action prohibited by policy, missing access that cannot be worked around, or when no safe useful work remains across the active map. The researcher may be away; absence is not a reason to pause.",
   ].join(" ");
 }
@@ -58,15 +58,35 @@ type TerminalConnectionState = "connecting" | "connected" | "reconnecting" | "en
 
 function TerminalView({
   session,
+  active,
+  maximized,
   onEnded,
   onConnectionChange,
 }: {
   session: TerminalSessionInfo;
+  active: boolean;
+  maximized: boolean;
   onEnded: (sessionId: string) => void;
   onConnectionChange: (sessionId: string, state: TerminalConnectionState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const readingEarlier = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!active) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      fitRef.current?.fit();
+      // The fullscreen class and viewport unit can settle on consecutive
+      // frames, especially after browser chrome changes size.
+      secondFrame = window.requestAnimationFrame(() => fitRef.current?.fit());
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [active, maximized]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -90,6 +110,7 @@ function TerminalView({
       },
     });
     const fit = new FitAddon();
+    fitRef.current = fit;
     terminal.loadAddon(fit);
     terminal.open(containerRef.current);
     fit.fit();
@@ -260,6 +281,7 @@ function TerminalView({
         socket.close(1000);
       }
       terminal.dispose();
+      if (fitRef.current === fit) fitRef.current = null;
     };
   }, [onConnectionChange, onEnded, session.id, session.persistent]);
 
@@ -594,6 +616,8 @@ export default function TerminalDock({
             >
               <TerminalView
                 session={session}
+                active={expanded && session.id === activeId}
+                maximized={maximized}
                 onEnded={markTerminalEnded}
                 onConnectionChange={markConnectionState}
               />

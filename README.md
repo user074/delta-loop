@@ -65,7 +65,7 @@ High-level research question
 Delta Loop keeps the number of ideas small and records when an idea is reframed, parked, reopened, or moved, so
 you can review how the research direction evolved. After work starts, the map can continue beyond that initial
 shape: a literature review can lead to an idea, work can produce a finding, a finding can revise or create an idea,
-and failed work can lead to a different experiment.
+and an inconclusive or blocked test can lead to a different experiment.
 
 Finishing setup requires an actual compute check and an actual Git inspection. It creates the first research state,
 summary, literature list, run folders, and a readable record of everything agreed during setup. The Home page keeps
@@ -85,14 +85,15 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Present the latest result and review as a compact research-update slide
 - Map every test and result back to the idea it examined
 - Discuss the research map with an agent that can add, clarify, move, or park ideas and ways to test them
-- Show which ideas worked, failed, remain uncertain, or have not been tested
+- Show which ideas have supporting evidence, challenging evidence, inconclusive results, execution issues, or no test yet
 - Start one persistent, continuous research session from the Home page; it chooses, runs, reviews, records, and begins the next useful test without waiting between cycles
-- Keep detailed agent plans underneath while showing only the method, data, and question to the researcher
+- Keep a flexible test brief underneath while showing the question, starting method, adaptations, data, and evidence to the researcher
 - Review the loop as main stages, child steps, or exact details; code, data, hardware, file, and Git instructions appear inside the steps that use them
 - See whether an instruction came from `delta-research`, a researcher preference, or a local lab rule
 - Set shared checks, temporary limits, and special rules for particular ideas
 - Start a focused agent chat from configuration that needs discussion; simple choices stay directly editable
-- Run an approved local command and keep its hidden detailed plan, output, and review together
+- Run a local test and keep its scientific intent, starting method, adaptations, output, and review together
+- Keep command fixes, setup repairs, and minor implementation edits inside the same research run instead of inflating the run count
 - Choose whether research commands run locally or on one remote server through the user's existing SSH setup
 - Reuse a previously checked computer or SSH server when opening another project, without copying project-specific paths or Git permissions
 - Check the remote project, Python, Git, and GPUs without starting research work
@@ -100,10 +101,10 @@ output folders, Git repository, branch, and push permission; those settings are 
 - Let Codex manage reviewed commits and optional pushes only under explicit, checked Git policy rules
 - Keep unattended research inside saved success, stop, compute, budget, Git, and project rules instead of asking for routine scientific or implementation approval
 - Keep remote jobs running when the browser closes, reconnect to their status and recent logs, and show exactly where large output remains
-- Limit how many independent approved plans may run at the same time
+- Limit how many independent tests may run at the same time
 - Change the agent rules safely through checked, reversible versions
 - Open a real terminal tied to the selected idea; hiding the panel does not stop the process
-- Review whether a run followed the plan, whether the result is trustworthy, and what to do next
+- Review whether a run produced valid evidence, whether it supports or challenges the idea, and what to do next
 
 The installed app stores its own history in `~/.delta-loop/`. The developer version uses `.delta-loop-data/` in
 this repository. For a local project, the following files live in the research project. For a remote project, they
@@ -229,10 +230,38 @@ and the server setup. After you approve it, Codex populates the map, saves the c
 environment and repository state, records success, stopping, budget, and Git choices, creates the initial local
 research files, and leaves the remote repository unchanged.
 
-For each remote run, Delta Loop copies the sealed plan to the configured run-record folder, starts the command as a
-background process, and reads its status and recent log over SSH. The job continues if the browser or Delta Loop is
+For each remote run, Delta Loop copies the test brief to the configured run-record folder, starts the command as a
+background process, and reads its status and recent log over SSH. The starting method may change during the run as
+long as the scientific question, comparison, measurement, resource limits, and explicit prohibitions remain intact.
+The job continues if the browser or Delta Loop is
 closed. Large artifacts remain in the remote output folder shown on the Compute page; Delta Loop does not copy them
 back automatically.
+
+Changing the method is not a failed experiment. Delta Loop records the final method and adaptations separately.
+A shell command is also not a research run. If the first implementation does not work, repair it under the same
+run ID. The earlier try remains available for audit, but the Research and Home pages still count one scientific
+run. Each try receives its own output subfolder, so a stale file from a broken implementation cannot be mistaken
+for the repaired result:
+
+```bash
+delta work retry RUN_ID \
+  --command "python corrected_experiment.py" \
+  --reason "Fixed the loader path; the idea, comparison, and measurement are unchanged."
+```
+
+Use `delta work start` again only after the current run has produced a reviewed result, or when the idea,
+comparison, or measurement genuinely changes. Delta Loop rejects a second unresolved run for the same work.
+A command error or unusable intermediate try is an **execution issue**; it does not count as evidence against the
+idea or as completed progress. Only a valid or partly valid result can be reviewed as supporting or challenging an idea:
+
+```bash
+delta work review RUN_ID \
+  --validity valid \
+  --outcome challenges \
+  --meaning "The expected difference was absent under the matched comparison." \
+  --adaptations "Replaced the broken loader and reduced the batch size." \
+  --next change-test
+```
 
 The **Set up with Codex** panel first asks whether work should run on this computer or a remote server, so the agent
 starts with the right setup process. The local path inspects the current project and machine. The remote path asks

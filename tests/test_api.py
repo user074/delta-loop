@@ -27,7 +27,7 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
             for version in imported["rules_versions"]
             if version["id"] == imported["active_rules_version_id"]
         )["rules"]
-        assert imported["policy_schema_version"] == 6
+        assert imported["policy_schema_version"] == 8
         assert [
             rule["id"] for rule in active_rules
             if rule["category"] == "loop" and rule["loop_level"] == "stage"
@@ -89,6 +89,9 @@ def test_import_patch_and_protocol_decision_round_trip(tmp_path: Path) -> None:
         assert "## Delta Loop Policy" in loop_text
         assert "DELTA_LOOP_WORKSPACE_ID" in loop_text
         assert "Do not stop for ordinary scientific choices" in loop_text
+        assert "Do not inflate run counts" in loop_text
+        assert "delta work retry" in loop_text
+        assert "delta work review" in loop_text
         assert "No Git rule is enabled. Do not commit or push; keep researching" in loop_text
 
         patch_response = client.patch(
@@ -685,7 +688,7 @@ def test_plan_run_and_review_flow(tmp_path: Path) -> None:
             time.sleep(0.05)
         assert finished["attempts"][0]["status"] == "finished"
         assert "delta-loop-run-ok" in finished["attempts"][0]["output"]
-        assert "# Approved plan" in finished["attempts"][0]["output"]
+        assert "# Research test brief" in finished["attempts"][0]["output"]
         handoff = Path(finished["attempts"][0]["handoff_file"])
         output_directory = Path(finished["attempts"][0]["output_directory"])
         assert handoff.is_file()
@@ -697,11 +700,25 @@ def test_plan_run_and_review_flow(tmp_path: Path) -> None:
         assert "safe fixture" in handoff_text
         assert (output_directory / "proof.txt").read_text(encoding="utf-8") == "ok"
 
+        invalid_evidence = client.post(
+            f"/api/workspaces/{workspace_id}/runs/{run_id}/review",
+            json={
+                "trust_result": "no",
+                "execution_validity": "invalid",
+                "evidence_outcome": "challenges",
+                "what_it_means": "The command did not produce usable evidence.",
+                "next_step": "change-test",
+            },
+        )
+        assert invalid_evidence.status_code == 422
+
         reviewed = client.post(
             f"/api/workspaces/{workspace_id}/runs/{run_id}/review",
             json={
-                "followed_plan": "yes",
                 "trust_result": "yes",
+                "execution_validity": "valid",
+                "evidence_outcome": "supports",
+                "adaptations": "Used the safe fixture helper without changing the check.",
                 "what_it_means": "The local run path works.",
                 "next_step": "park",
                 "notes": "Safe fixture only.",
@@ -709,8 +726,82 @@ def test_plan_run_and_review_flow(tmp_path: Path) -> None:
             },
         ).json()
         assert reviewed["reviews"][0]["trust_result"] == "yes"
+        assert reviewed["reviews"][0]["evidence_outcome"] == "supports"
+        assert "safe fixture helper" in reviewed["reviews"][0]["adaptations"]
         reviewed_approach = next(node for node in reviewed["nodes"] if node["id"] == approach["id"])
         assert reviewed_approach["status"] == "dormant"
+        assert reviewed_approach["outcome_counts"]["supports"] == 1
+
+        blocked_workspace = client.post(
+            f"/api/workspaces/{workspace_id}/plans",
+            json={"approach_id": approach["id"], "title": "Broken starting command"},
+        ).json()
+        blocked_plan = blocked_workspace["packages"][-1]
+        client.patch(
+            f"/api/workspaces/{workspace_id}/plans/{blocked_plan['id']}",
+            json={
+                "goal": "Verify that an unusable execution is not scientific evidence.",
+                "instructions": "Run the starting command.",
+                "measure": "No evidence should be recorded from an unusable command.",
+                "command": "python3 -c \"raise SystemExit(3)\"",
+            },
+        )
+        client.post(f"/api/workspaces/{workspace_id}/plans/{blocked_plan['id']}/approve")
+        blocked_started = client.post(
+            f"/api/workspaces/{workspace_id}/plans/{blocked_plan['id']}/run"
+        ).json()
+        blocked_run_id = blocked_started["attempts"][-1]["id"]
+        blocked_finished = blocked_started
+        for _ in range(40):
+            blocked_finished = client.get(f"/api/workspaces/{workspace_id}").json()
+            blocked_attempt = next(
+                item for item in blocked_finished["attempts"] if item["id"] == blocked_run_id
+            )
+            if blocked_attempt["status"] == "blocked":
+                break
+            time.sleep(0.05)
+        blocked_attempt = next(
+            item for item in blocked_finished["attempts"] if item["id"] == blocked_run_id
+        )
+        assert blocked_attempt["status"] == "blocked"
+        attempt_count = len(blocked_finished["attempts"])
+        inflated = client.post(
+            f"/api/workspaces/{workspace_id}/plans",
+            json={"approach_id": approach["id"], "title": "Minor command edit"},
+        )
+        assert inflated.status_code == 409
+        assert "delta work retry" in inflated.json()["detail"]
+
+        retried = client.post(
+            f"/api/workspaces/{workspace_id}/runs/{blocked_run_id}/retry",
+            json={
+                "command": "python3 -c \"print('repaired-run-ok')\"",
+                "reason": "Corrected the implementation command without changing the scientific test.",
+            },
+        )
+        assert retried.status_code == 200
+        retry_finished = retried.json()
+        for _ in range(40):
+            retry_finished = client.get(f"/api/workspaces/{workspace_id}").json()
+            retry_attempt = next(
+                item for item in retry_finished["attempts"] if item["id"] == blocked_run_id
+            )
+            if retry_attempt["status"] == "finished":
+                break
+            time.sleep(0.05)
+        retry_attempt = next(
+            item for item in retry_finished["attempts"] if item["id"] == blocked_run_id
+        )
+        assert retry_attempt["status"] == "finished"
+        assert "repaired-run-ok" in retry_attempt["output"]
+        assert len(retry_finished["attempts"]) == attempt_count
+        assert len(retry_attempt["execution_history"]) == 1
+        assert retry_attempt["execution_history"][0]["status"] == "blocked"
+        assert "Corrected the implementation command" in retry_attempt["current_try_reason"]
+        unchanged_approach = next(
+            node for node in retry_finished["nodes"] if node["id"] == approach["id"]
+        )
+        assert unchanged_approach["outcome_counts"] == {"supports": 1}
 
 
 def test_rules_must_be_checked_before_use(tmp_path: Path) -> None:
@@ -758,7 +849,7 @@ def test_rules_must_be_checked_before_use(tmp_path: Path) -> None:
         assert "Save one short summary" in policy_text
         loop_text = Path(activated["loop_file"]).read_text(encoding="utf-8")
         assert "### 1. Implementation" in loop_text
-        assert "#### 1.1 Write and seal the run plan" in loop_text
+        assert "#### 1.1 Write a flexible test brief" in loop_text
         assert "### 2. Ideation" in loop_text
         assert "Save one short summary" in loop_text
         assert "SUPERVISOR.md" not in loop_text
@@ -775,20 +866,48 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
 
     saved = json.loads(store_path.read_text(encoding="utf-8"))
     old_workspace = saved["workspaces"][0]
-    old_workspace["policy_schema_version"] = 0
+    old_workspace["policy_schema_version"] = 6
     old_active = next(
         version
         for version in old_workspace["rules_versions"]
         if version["id"] == old_workspace["active_rules_version_id"]
     )
     old_active["version"] = 2
-    old_active["rules"] = [
-        rule for rule in old_active["rules"] if rule["id"] != "continuous-research"
-    ]
     legacy_rules = {rule["id"]: rule for rule in old_active["rules"]}
+    legacy_rules["stage-implementation"]["instruction"] = (
+        "Turn the selected idea into a precise, bounded, and executable piece of work."
+    )
+    legacy_rules["loop-create-plan"].update({
+        "title": "Write and seal the run plan",
+        "instruction": (
+            "Write PLAN.md with the question, method, data and resources, commands, success and stop conditions, "
+            "literature status, active policy, and time or compute limits. Preserve the initial plan before handing "
+            "off the work."
+        ),
+    })
+    legacy_rules["stage-experimentation"]["instruction"] = (
+        "Run the sealed work without silently changing the scientific question or comparison."
+    )
     legacy_rules["loop-run-worker"]["instruction"] = (
-        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, "
-        "debug, plot, and report within that scope, and must stop for blockers or changes that require approval."
+        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, debug, "
+        "plot, repair scope-preserving failures, and report within that scope. If the worker cannot finish, the "
+        "supervisor should revise the package or choose another useful path without waiting for routine "
+        "researcher approval."
+    )
+    legacy_rules["loop-review-result"]["instruction"] = (
+        "Read the report, check that the intended comparison was followed, decide whether the result is "
+        "trustworthy, separate what happened from its interpretation, and state what it cannot prove."
+    )
+    legacy_rules["controlled-plan-amendments"]["instruction"] = (
+        "Keep the initial plan unchanged. Record scope-preserving execution repairs in the live plan; make a new "
+        "run for a changed hypothesis, main comparison, dataset family, or success condition."
+    )
+    legacy_rules["continuous-research"]["instruction"] = (
+        "Choose, run, review, and record one useful piece of work after another without asking for plan, "
+        "implementation, interpretation, map-update, or promotion approval. Resolve ambiguity with the "
+        "smallest discriminating test. If one path is blocked, record why, park it when appropriate, and "
+        "continue with another eligible path. Stop only for a saved success or stop condition, an exhausted "
+        "resource limit, an action prohibited by policy, or when no safe useful work remains."
     )
     legacy_rules["loop-finish-cycle"]["instruction"] = (
         "Follow the active Git and publishing rules, then check the recorded stop conditions. If no "
@@ -832,16 +951,75 @@ def test_old_policy_is_upgraded_without_losing_its_rules(tmp_path: Path) -> None
         for version in upgraded["rules_versions"]
         if version["id"] == upgraded["active_rules_version_id"]
     )
-    assert upgraded["policy_schema_version"] == 6
+    assert upgraded["policy_schema_version"] == 8
     assert active["version"] == 3
     assert any(rule["id"] == "lab-specific-rule" for rule in active["rules"])
     assert any(rule["category"] == "loop" for rule in active["rules"])
     assert any(rule["category"] == "checkpoint" for rule in active["rules"])
     assert any(rule["id"] == "plan-exact-inputs" for rule in active["rules"])
     assert any(rule["id"] == "continuous-research" for rule in active["rules"])
+    flexible_plan = next(rule for rule in active["rules"] if rule["id"] == "loop-create-plan")
+    assert flexible_plan["title"] == "Write a flexible test brief"
+    assert "as an immutable contract" in flexible_plan["instruction"]
+    worker = next(rule for rule in active["rules"] if rule["id"] == "loop-run-worker")
+    assert "never count" in worker["instruction"]
+    assert "same research run" in worker["instruction"]
     full_study = next(rule for rule in active["rules"] if rule["id"] == "ask-before-full-study")
     assert full_study["title"] == "Promote useful signals to a full study"
     assert "continue without waiting" in full_study["instruction"]
+
+
+def test_v7_policy_migrates_implementation_retries_into_one_run(tmp_path: Path) -> None:
+    project = tmp_path / "research"
+    project.mkdir()
+    (project / "STATE.md").write_text(STATE, encoding="utf-8")
+    store_path = tmp_path / "loop-data.json"
+
+    with TestClient(create_app(store_path)) as client:
+        imported = client.post("/api/workspaces/import", json={"path": str(project)}).json()
+
+    saved = json.loads(store_path.read_text(encoding="utf-8"))
+    workspace = saved["workspaces"][0]
+    workspace["policy_schema_version"] = 7
+    active = next(
+        version
+        for version in workspace["rules_versions"]
+        if version["id"] == workspace["active_rules_version_id"]
+    )
+    rules = {rule["id"]: rule for rule in active["rules"]}
+    rules["loop-run-worker"]["instruction"] = (
+        "Give the worker the test intent, starting method, resources, boundaries, environment, and policy. "
+        "The worker may revise code, commands, implementation, and intermediate steps; debug; replace a "
+        "broken technique; and rerun within the saved limits. Record meaningful adaptations, but never count "
+        "a changed plan as a failure. Preserve the intended idea, fair comparison, measurement, and hard boundaries."
+    )
+    rules["loop-review-result"]["instruction"] = (
+        "Read the final method and result. First decide whether the execution produced trustworthy evidence; "
+        "then classify that evidence as supporting the idea, challenging the idea, inconclusive, invalid, or "
+        "not applicable. Record implementation adaptations separately. A changed starting plan is not a "
+        "negative result and must not increment any failure or evidence-against count."
+    )
+    rules["controlled-plan-amendments"]["instruction"] = (
+        "Keep the initial test brief as provenance and record the final method plus meaningful adaptations. "
+        "Implementation changes, repaired commands, and revised intermediate steps are normal and do not make "
+        "the run fail. If the idea, comparison meaning, or measurement changes, link the result to a revised "
+        "test instead of labeling the original idea as failed."
+    )
+    store_path.write_text(json.dumps(saved), encoding="utf-8")
+
+    with TestClient(create_app(store_path)) as client:
+        upgraded = client.get(f"/api/workspaces/{imported['id']}").json()
+
+    upgraded_active = next(
+        version
+        for version in upgraded["rules_versions"]
+        if version["id"] == upgraded["active_rules_version_id"]
+    )
+    upgraded_rules = {rule["id"]: rule for rule in upgraded_active["rules"]}
+    assert upgraded["policy_schema_version"] == 8
+    assert "delta work retry" in upgraded_rules["loop-run-worker"]["instruction"]
+    assert "same run" in upgraded_rules["loop-review-result"]["instruction"]
+    assert "same run ID" in upgraded_rules["controlled-plan-amendments"]["instruction"]
 
 
 def test_project_can_keep_multiple_research_terminals_running(tmp_path: Path, monkeypatch) -> None:

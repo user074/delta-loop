@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     )
     work_show.add_argument("--json", action="store_true", dest="as_json")
     work_start = work_subparsers.add_parser(
-        "start", help="Seal one plan and start it at the saved compute location"
+        "start", help="Save one test brief and start it at the saved compute location"
     )
     work_start.add_argument("--approach", required=True, dest="approach_id")
     work_start.add_argument("--title", required=True)
@@ -220,9 +220,46 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
     work_start.add_argument("--limits", default="")
     work_start.add_argument("--do-not-change", default="", dest="do_not_change")
     work_start.add_argument("--budget", default="Small")
+    work_retry = work_subparsers.add_parser(
+        "retry",
+        help="Repair the implementation inside an existing research run",
+    )
+    work_retry.add_argument("run_id")
+    work_retry.add_argument("--command", required=True)
+    work_retry.add_argument(
+        "--reason",
+        required=True,
+        help="What implementation problem changed; this is not a new scientific run",
+    )
+    work_review = work_subparsers.add_parser(
+        "review", help="Record what a completed test says about the idea"
+    )
+    work_review.add_argument("run_id")
+    work_review.add_argument(
+        "--outcome",
+        required=True,
+        choices=["supports", "challenges", "inconclusive", "invalid", "not-applicable"],
+        help="Scientific evidence outcome; implementation changes are not an outcome",
+    )
+    work_review.add_argument(
+        "--validity",
+        default="valid",
+        choices=["valid", "partly-valid", "invalid", "unsure"],
+        help="Whether the final execution can answer the intended question",
+    )
+    work_review.add_argument("--meaning", required=True)
+    work_review.add_argument(
+        "--next",
+        required=True,
+        dest="next_step",
+        choices=["go-deeper", "run-again", "change-test", "try-another", "park"],
+    )
+    work_review.add_argument("--adaptations", default="")
+    work_review.add_argument("--notes", default="")
+    work_review.add_argument("--keep-code", action="store_true")
     work_cancel = work_subparsers.add_parser("cancel", help="Stop a running job")
     work_cancel.add_argument("run_id")
-    for item in (work_show, work_start, work_cancel):
+    for item in (work_show, work_start, work_retry, work_review, work_cancel):
         item.add_argument("--workspace")
         item.add_argument(
             "--url",
@@ -489,6 +526,27 @@ def main(argv: list[str] | None = None, *, program: str = "delta") -> None:
                 args.limits,
                 args.do_not_change,
                 args.budget,
+            )
+        elif args.work_command == "review":
+            _review_work(
+                args.url,
+                args.workspace,
+                args.run_id,
+                args.outcome,
+                args.validity,
+                args.meaning,
+                args.next_step,
+                args.adaptations,
+                args.notes,
+                args.keep_code,
+            )
+        elif args.work_command == "retry":
+            _retry_work(
+                args.url,
+                args.workspace,
+                args.run_id,
+                args.command,
+                args.reason,
             )
         else:
             _cancel_work(args.url, args.workspace, args.run_id)
@@ -1359,6 +1417,9 @@ def _show_work(base_url: str, workspace_id: str | None, as_json: bool) -> None:
         )
         print(f"{attempt['id']} · {attempt['status']} · {plan.get('title', 'Research work')}")
         print(f"  Ran on: {location}")
+        tries = len(attempt.get("execution_history", [])) + 1
+        if tries > 1:
+            print(f"  Implementation: {tries} tries inside this one research run")
         if output:
             print(f"  Output: {output}")
         if attempt.get("output"):
@@ -1442,6 +1503,66 @@ def _cancel_work(base_url: str, workspace_id: str | None, run_id: str) -> None:
         method="POST",
     )
     print(f"Stopped {run_id}.")
+
+
+def _retry_work(
+    base_url: str,
+    workspace_id: str | None,
+    run_id: str,
+    command: str,
+    reason: str,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    run_path = urllib.parse.quote(run_id, safe="")
+    retried = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/runs/{run_path}/retry",
+        method="POST",
+        payload={"command": command, "reason": reason},
+    )
+    attempt = next(item for item in retried["attempts"] if item["id"] == run_id)
+    try_number = len(attempt.get("execution_history", [])) + 1
+    print(f"Repaired {run_id}; implementation try {try_number} is running inside the same research run.")
+    print("Do not create a new run unless the scientific question, comparison, or measurement changes.")
+
+
+def _review_work(
+    base_url: str,
+    workspace_id: str | None,
+    run_id: str,
+    outcome: str,
+    validity: str,
+    meaning: str,
+    next_step: str,
+    adaptations: str,
+    notes: str,
+    keep_code: bool,
+) -> None:
+    workspace_id, _ = _ids(workspace_id)
+    workspace_path = urllib.parse.quote(workspace_id, safe="")
+    run_path = urllib.parse.quote(run_id, safe="")
+    reviewed = _api_json(
+        base_url,
+        f"/api/workspaces/{workspace_path}/runs/{run_path}/review",
+        method="POST",
+        payload={
+            "trust_result": (
+                "no" if validity == "invalid" else "unsure" if validity == "unsure" else "yes"
+            ),
+            "execution_validity": validity,
+            "evidence_outcome": outcome,
+            "adaptations": adaptations,
+            "what_it_means": meaning,
+            "next_step": next_step,
+            "notes": notes,
+            "keep_code": keep_code,
+        },
+    )
+    review = next(item for item in reviewed["reviews"] if item["attempt_id"] == run_id)
+    print(f"Recorded {review['evidence_outcome']} evidence for {run_id}.")
+    if adaptations:
+        print("Implementation adaptations were saved separately and were not counted as a failure.")
 
 
 def _show_policy(base_url: str, workspace_id: str | None, node_id: str | None) -> None:
