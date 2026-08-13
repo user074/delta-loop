@@ -16,8 +16,19 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 60000): 
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
-      throw new Error(body?.detail ?? `Request failed (${response.status})`);
+      const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+      const detail = body?.detail;
+      const message = typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((item) => {
+              if (!item || typeof item !== "object") return String(item);
+              const error = item as { loc?: unknown[]; msg?: string };
+              const field = error.loc?.at(-1);
+              return `${field ? `${String(field)}: ` : ""}${error.msg ?? "Invalid value"}`;
+            }).join("; ")
+          : `Request failed (${response.status})`;
+      throw new Error(message);
     }
     return (await response.json()) as T;
   } catch (error) {

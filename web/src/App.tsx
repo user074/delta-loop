@@ -1,5 +1,5 @@
 import { ArrowRight, BookOpen, Computer, GitBranch, Import, Play, RefreshCw, RotateCcw, Server, ShieldCheck, SquareTerminal, X } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRemoteWorkspace, getWorkspace, importWorkspace, listComputeProfiles, listWorkspaces } from "./api";
 import type { DiscussionRequest } from "./discussions";
 import { generalPolicyDiscussion, projectSetupDiscussion, remoteProjectSetupDiscussion } from "./discussions";
@@ -8,9 +8,9 @@ import ComputePage from "./ComputePage";
 import PolicyPage from "./PolicyPage";
 import ResearchPage from "./ResearchPage";
 import RulesDrawer from "./RulesDrawer";
-import type { ComputeProfile, ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
+import type { AppPage, ComputeProfile, ResearchLaunchRequest, TerminalSessionInfo, Workspace } from "./types";
 
-type View = "home" | "research" | "policy" | "compute";
+type View = AppPage;
 type ImportMode = "choose" | "local";
 
 const TerminalDock = lazy(() => import("./TerminalDock"));
@@ -47,6 +47,7 @@ export default function App() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [computeProfiles, setComputeProfiles] = useState<ComputeProfile[]>([]);
   const [setupProfile, setSetupProfile] = useState<ComputeProfile | null>(null);
+  const discussionSerial = useRef(0);
 
   const loadInitialWorkspaces = useCallback(() => {
     setInitialLoading(true);
@@ -83,7 +84,8 @@ export default function App() {
 
   const openDiscussion = useCallback((request: Omit<DiscussionRequest, "id">) => {
     if (request.nodeId) setSelectedId(request.nodeId);
-    setDiscussion({ ...request, id: Date.now() });
+    discussionSerial.current += 1;
+    setDiscussion({ ...request, id: discussionSerial.current });
   }, []);
 
   const setupDiscussion = useCallback((project: Workspace, profile = setupProfile) => (
@@ -291,6 +293,7 @@ export default function App() {
               <TerminalDock
                 workspace={workspace}
                 selectedNode={selectedNode}
+                currentPage={view}
                 discussion={discussion}
                 researchStartRequest={researchStartRequest}
                 onResearchSessionChange={setResearchSession}

@@ -331,6 +331,8 @@ export interface ResearchLaunchRequest {
   sourcePage: "home" | "research" | "policy" | "compute";
 }
 
+export type AppPage = ResearchLaunchRequest["sourcePage"];
+
 export interface HarnessInfo {
   source_url: string;
   path: string;

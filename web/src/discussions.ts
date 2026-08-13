@@ -31,15 +31,16 @@ function opening(topic: string) {
 }
 
 function mapContext(workspace: Workspace) {
-  const labels = { question: "Question", direction: "Idea", approach: "Experiment" } as const;
-  const nodes = workspace.nodes.map((node) => `- ${labels[node.kind]} [${node.id}]: ${node.title} [${node.status}]`).join("\n");
-  const nodeTitles = new Map(workspace.nodes.map((node) => [node.id, node.title]));
-  const links = workspace.research_links.map((link) => (
-    `- ${nodeTitles.get(link.source_id) ?? link.source_id} --${link.relationship}--> ${nodeTitles.get(link.target_id) ?? link.target_id}`
-  )).join("\n");
+  const questions = workspace.nodes.filter((node) => node.kind === "question");
+  const ideas = workspace.nodes.filter((node) => node.kind === "direction");
+  const experiments = workspace.nodes.filter((node) => node.kind === "approach");
+  const shownQuestions = questions.slice(0, 8);
   return [
-    `The map currently contains:\n${nodes || "No research items have been added yet."}`,
-    `Its recorded relationships are:\n${links || "No relationships have been added yet."}`,
+    `The visual map currently has ${questions.length} question(s), ${ideas.length} idea(s), ${experiments.length} experiment(s), and ${workspace.research_links.length} relationship(s).`,
+    questions.length
+      ? `Its high-level questions are:\n${shownQuestions.map((node) => `- [${node.id}] ${node.title}`).join("\n")}${questions.length > shownQuestions.length ? `\n- …and ${questions.length - shownQuestions.length} more; use \`delta map show\` to read them.` : ""}`
+      : "No research question has been added yet.",
+    "Use `delta map show` for the complete current map instead of relying on this short startup summary.",
   ];
 }
 
@@ -257,15 +258,18 @@ export function generalPolicyDiscussion(
   focus = "the whole research loop and project policy",
 ): Omit<DiscussionRequest, "id"> {
   const active = workspace.rules_versions.find((version) => version.id === workspace.active_rules_version_id);
-  const current = (active?.rules ?? []).map((rule) => (
-    `- [${rule.enabled ? "on" : "off"}] ${rule.category}: ${rule.id === "start-with-small-test" ? "Quick Test" : rule.title}\n  When: ${rule.when}\n  Do: ${rule.instruction}\n  Scope: ${rule.scope}${rule.expires_when ? `\n  Ends: ${rule.expires_when}` : ""}`
-  )).join("\n");
+  const rules = active?.rules ?? [];
+  const enabled = rules.filter((rule) => rule.enabled);
+  const categories = [...new Set(enabled.map((rule) => rule.category))].join(", ");
   return {
     nodeId: null,
     topic: focus,
     prompt: [
       ...opening(focus),
-      `The active policy currently contains:\n${current || "No policy rules are recorded."}`,
+      active
+        ? `The Policy page is using version ${active.version}, with ${enabled.length} active rule(s) out of ${rules.length}. Active categories: ${categories || "none"}.`
+        : "No active policy version is recorded.",
+      "This is a new Policy conversation. It is not about the research item that may have been selected on another page unless the researcher explicitly brings that item into the discussion.",
       "Run `delta rules show` before asking your first question. A useful rule says when it applies, what the agent must do, where it applies, and—if temporary—when it ends.",
       "Use the categories loop, checkpoint, project, git, hardware, data, resources, and temporary. Keep the research loop short enough for a human to understand.",
       "Required safety rules cannot be removed. Do not change the active policy until the researcher clearly agrees.",

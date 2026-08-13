@@ -5,7 +5,7 @@ import { Box, ChevronDown, ChevronUp, MessageCircle, Plus, Power, SquareTerminal
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { closeAllTerminals, closeTerminal, createTerminal, listTerminals } from "./api";
 import type { DiscussionRequest } from "./discussions";
-import type { ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
+import type { AppPage, ResearchLaunchRequest, ResearchNode, TerminalSessionInfo, Workspace } from "./types";
 
 const RESEARCH_START_PROMPT = [
   "You are starting or continuing the project's real research loop as its persistent supervisor. This is research work, not a discussion about how the loop should work.",
@@ -53,10 +53,16 @@ function researchStartPrompt(
   return `${RESEARCH_START_PROMPT}\n\n${focusDetails.join("\n")}`;
 }
 
-function additionalChatPrompt(workspace: Workspace, focus: ResearchNode | null) {
-  const focusText = focus
-    ? `The researcher opened this additional chat while focused on the ${nodeKindLabels[focus.kind]} "${focus.title}" [${focus.id}]. Use that as context, but do not assume what they want changed.`
-    : "The researcher opened this additional chat from the project without selecting a specific research item.";
+function additionalChatPrompt(workspace: Workspace, currentPage: AppPage, focus: ResearchNode | null) {
+  const focusText = currentPage === "research" && focus
+    ? `The researcher opened this additional chat from the Research page while focused on the ${nodeKindLabels[focus.kind]} "${focus.title}" [${focus.id}]. Use that as context, but do not assume what they want changed.`
+    : currentPage === "policy"
+      ? "The researcher opened this additional chat from the Policy page. Discuss the research loop or agent rules. Do not carry over a research-map selection from another page unless the researcher explicitly asks to connect it."
+      : currentPage === "compute"
+        ? "The researcher opened this additional chat from the Compute page. Discuss this project's machine, environment, remote connection, resources, or Git setup. Do not carry over a research-map selection from another page."
+        : currentPage === "home"
+          ? "The researcher opened this additional chat from the Home page. Start from the project's overall research status rather than a previously selected map item."
+          : "The researcher opened this additional chat without selecting a particular research item.";
   return [
     "You are an additional Delta Loop discussion session. This chat runs alongside other terminals; do not stop, replace, or take over another session.",
     "Run `delta context` first so you understand the current project and active rules.",
@@ -300,6 +306,7 @@ function TerminalView({
 export default function TerminalDock({
   workspace,
   selectedNode,
+  currentPage,
   discussion,
   researchStartRequest,
   onResearchSessionChange,
@@ -309,6 +316,7 @@ export default function TerminalDock({
 }: {
   workspace: Workspace;
   selectedNode: ResearchNode | null;
+  currentPage: AppPage;
   discussion: DiscussionRequest | null;
   researchStartRequest: ResearchLaunchRequest | null;
   onResearchSessionChange: (session: TerminalSessionInfo | null) => void;
@@ -428,11 +436,12 @@ export default function TerminalDock({
     setBusy(true);
     setNewMenuOpen(false);
     try {
+      const pageFocus = currentPage === "research" ? selectedNode : null;
       const existing = !alwaysNew && sessions.find(
-        (session) => session.kind === "shell" && session.status === "active" && session.node_id === selectedNode?.id,
+        (session) => session.kind === "shell" && session.status === "active" && session.node_id === pageFocus?.id,
       );
-      const title = selectedNode ? `Terminal · ${selectedNode.title}` : "Terminal · project";
-      const session = existing || (await createTerminal(workspace.id, selectedNode?.id ?? null, undefined, "shell", title));
+      const title = pageFocus ? `Terminal · ${pageFocus.title}` : `Terminal · ${currentPage}`;
+      const session = existing || (await createTerminal(workspace.id, pageFocus?.id ?? null, undefined, "shell", title));
       if (!existing) setSessions((current) => [...current, session]);
       setActiveId(session.id);
       setExpanded(true);
@@ -447,11 +456,13 @@ export default function TerminalDock({
     setBusy(true);
     setNewMenuOpen(false);
     try {
-      const title = selectedNode ? `Chat · ${selectedNode.title}` : "Chat · project";
+      const pageFocus = currentPage === "research" ? selectedNode : null;
+      const pageLabel = currentPage[0].toUpperCase() + currentPage.slice(1);
+      const title = pageFocus ? `Chat · ${pageFocus.title}` : `Chat · ${pageLabel}`;
       const session = await createTerminal(
         workspace.id,
-        selectedNode?.id ?? null,
-        additionalChatPrompt(workspace, selectedNode),
+        pageFocus?.id ?? null,
+        additionalChatPrompt(workspace, currentPage, pageFocus),
         "discussion",
         title,
       );
@@ -605,7 +616,7 @@ export default function TerminalDock({
         <div className="terminal-preview">
           <span className="prompt">delta</span>
           <span>{active ? `${active.title} is still running.` : "No terminal is running for this project."}</span>
-          <button><Box size={13} /> {selectedNode ? "Selection is ready" : "Choose an item first"}</button>
+          <button><Box size={13} /> {currentPage === "research" && selectedNode ? "Selection is ready" : `${currentPage[0].toUpperCase() + currentPage.slice(1)} context`}</button>
         </div>
       )}
     </section>
