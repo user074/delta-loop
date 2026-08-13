@@ -201,7 +201,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .decision-row span { font-size: 10px; font-weight: 700; }
 .decision-row p { margin: 3px 0 0; color: #76736c; font-size: 9px; line-height: 1.45; }
 
-.terminal-dock { position: fixed; z-index: 12; left: 84px; right: 0; bottom: 0; height: 104px; display: grid; grid-template-rows: 35px minmax(0, 1fr); overflow: hidden; background: #24241f; color: #d7d3c9; border-top: 1px solid #0d0d0b; transition: height 180ms ease; }
+.terminal-dock { position: fixed; z-index: 12; left: 84px; right: 0; bottom: 0; height: 104px; display: grid; grid-template-rows: 35px minmax(0, 1fr); overflow: hidden; background: #24241f; color: #d7d3c9; border-top: 1px solid #0d0d0b; }
 .terminal-dock.has-sessions { grid-template-rows: 35px 37px minmax(0, 1fr); }
 .terminal-dock.expanded { height: 340px; }
 .terminal-dock.maximized { z-index: 30; inset: 0; height: 100dvh; border-top: 0; transition: none; }

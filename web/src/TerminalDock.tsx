@@ -150,6 +150,16 @@ function TerminalView({
           try {
             const message = JSON.parse(event.data) as { type?: string };
             if (message.type === "ready") {
+              // The panel may have finished opening while the WebSocket was
+              // preparing its first screen. Send the final measured size even
+              // when xterm's earlier resize event occurred before the socket
+              // was ready.
+              fit.fit();
+              socket?.send(JSON.stringify({
+                type: "resize",
+                columns: terminal.cols,
+                rows: terminal.rows,
+              }));
               readyForInput = true;
               retries = 0;
               reconnectMessageShown = false;

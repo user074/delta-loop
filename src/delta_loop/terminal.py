@@ -273,10 +273,6 @@ class TerminalManager:
             temporary_columns = columns - 1 if columns > 20 else columns + 1
             self._resize_record(record, temporary_columns, rows)
         self._resize_record(record, columns, rows)
-        try:
-            os.killpg(record.process.pid, signal.SIGWINCH)
-        except (ProcessLookupError, PermissionError):
-            pass
 
         deadline = time.monotonic() + 0.5
         last_sequence = cursor
@@ -678,6 +674,14 @@ class TerminalManager:
         columns = max(20, min(columns, 500))
         rows = max(4, min(rows, 200))
         self._set_size(record.master_fd, columns, rows)
+        # TIOCSWINSZ updates the PTY size but does not reliably wake an
+        # attached tmux client on every platform. Without SIGWINCH, tmux can
+        # keep rendering a four-row client inside a much larger browser and
+        # fill the rest with separator lines and dots.
+        try:
+            os.killpg(record.process.pid, signal.SIGWINCH)
+        except (ProcessLookupError, PermissionError):
+            pass
         if not record.tmux_session or not self._tmux:
             return
         try:

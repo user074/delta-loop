@@ -249,16 +249,22 @@ def test_persistent_resize_sets_tmux_window_to_browser_size(
     record.tmux_session = "delta-loop-test"
     manager._tmux = "/fake/tmux"
     commands: list[list[str]] = []
+    signals: list[tuple[int, int]] = []
 
     def run(command: list[str], **_kwargs):
         commands.append(command)
         return type("Result", (), {"returncode": 0})()
 
     monkeypatch.setattr("delta_loop.terminal.subprocess.run", run)
+    monkeypatch.setattr(
+        "delta_loop.terminal.os.killpg",
+        lambda pid, sent_signal: signals.append((pid, sent_signal)),
+    )
 
     manager.resize(session.id, 164, 51)
 
     assert manager._get_size(record.master_fd) == (164, 51)
+    assert signals == [(record.process.pid, signal.SIGWINCH)]
     assert commands == [[
         "/fake/tmux",
         "resize-window",
