@@ -837,7 +837,7 @@ def create_app(
         if not package:
             raise HTTPException(status_code=404, detail="Plan not found.")
         if package.status != "draft":
-            raise HTTPException(status_code=409, detail="Approved plans cannot be edited. Make a new plan instead.")
+            raise HTTPException(status_code=409, detail="A running test brief cannot be edited here. Let the worker record implementation adaptations, or make a new brief if the scientific question changes.")
         for field, value in patch.model_dump(exclude_none=True).items():
             setattr(package, field, value)
         package.updated_at = now_iso()
@@ -889,10 +889,21 @@ def create_app(
         attempt = next((item for item in workspace.attempts if item.id == attempt_id), None)
         if not attempt:
             raise HTTPException(status_code=404, detail="Run not found.")
-        if attempt.status not in {"finished", "failed", "cancelled"}:
+        if attempt.status not in {"finished", "blocked", "failed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Wait until the run ends before reviewing it.")
         if any(review.attempt_id == attempt_id for review in workspace.reviews):
             raise HTTPException(status_code=409, detail="This run has already been reviewed.")
+        if (
+            request.evidence_outcome in {"supports", "challenges"}
+            and request.execution_validity not in {"valid", "partly-valid"}
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Only a valid or partly valid execution can support or challenge an idea. "
+                    "Record a broken or unusable run as invalid instead."
+                ),
+            )
         review = ResultReview(
             id=f"review-{uuid4().hex[:10]}",
             attempt_id=attempt_id,
@@ -904,6 +915,9 @@ def create_app(
             (item for item in workspace.nodes if package and item.id == package.approach_id),
             None,
         )
+        if node:
+            outcome = request.evidence_outcome
+            node.outcome_counts[outcome] = node.outcome_counts.get(outcome, 0) + 1
         if node and request.next_step == "park":
             node.status = "dormant"
         elif node and request.next_step == "go-deeper":

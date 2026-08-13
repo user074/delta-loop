@@ -125,7 +125,7 @@ export function continueResearchFromNodeDiscussion(node: ResearchNode): Omit<Dis
     prompt: [
       ...opening("the next research step from a selected place in the map"),
       `Continue from [${node.id}]: ${node.title}`,
-      "Read the nearby incoming and outgoing relationships with `delta map show`. Help decide whether the right continuation is a focused review, experiment, finding, revised idea, new idea, repeat, or a different experiment after failure.",
+      "Read the nearby incoming and outgoing relationships with `delta map show`. Help decide whether the right continuation is a focused review, experiment, finding, revised idea, new idea, repeat, or a different experiment after challenging evidence or blocked execution.",
       "Propose the smallest useful next step and the relationship it has to the selected item. Do not force it into Question → Idea → Experiment order.",
       "Save only the option the researcher approves using `delta map add-work`, `delta map add-finding`, `delta map add-idea`, or `delta map connect`. Run `delta map show` after saving.",
     ].join("\n\n"),

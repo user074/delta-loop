@@ -19,7 +19,7 @@ class RunFailure(ValueError):
     pass
 
 
-TERMINAL_STATUSES = {"finished", "failed", "cancelled"}
+TERMINAL_STATUSES = {"finished", "blocked", "failed", "cancelled"}
 
 
 class AttemptRunner:
@@ -39,7 +39,7 @@ class AttemptRunner:
         if not package:
             raise RunFailure("Plan not found.")
         if package.status != "ready":
-            raise RunFailure("Approve the plan before running it.")
+            raise RunFailure("Finish the test brief before running it.")
         compute = workspace.compute
         if not compute.configured:
             raise RunFailure("Set up where research work runs on the Compute page first.")
@@ -167,7 +167,7 @@ class AttemptRunner:
                 env=environment,
             )
         except OSError as exc:
-            self._finish_failed(workspace, package, attempt, str(exc))
+            self._finish_blocked(workspace, package, attempt, str(exc))
             return
 
         with self._lock:
@@ -195,8 +195,8 @@ class AttemptRunner:
             attempt.status = "finished"
             package.status = "finished"
         else:
-            attempt.status = "failed"
-            package.status = "failed"
+            attempt.status = "blocked"
+            package.status = "blocked"
         self.store.save(workspace)
 
     def _run_remote(
@@ -275,7 +275,7 @@ printf '%s\n' "$pid"
             attempt.last_checked_at = now_iso()
             self.store.save(workspace)
         except (ComputeFailure, OSError, ValueError) as exc:
-            self._finish_failed(workspace, package, attempt, str(exc))
+            self._finish_blocked(workspace, package, attempt, str(exc))
             return
         while attempt.status not in TERMINAL_STATUSES:
             time.sleep(2)
@@ -340,7 +340,7 @@ finish() {
   elif [ "$code" -eq 0 ]; then
     printf 'finished\n' >"$status_file"
   else
-    printf 'failed\n' >"$status_file"
+    printf 'blocked\n' >"$status_file"
   fi
 }
 trap finish EXIT
@@ -448,36 +448,37 @@ tail -n 2000 "$run_dir/run.log" 2>/dev/null || true
         )
         return current != previous
 
-    def _finish_failed(self, workspace, package, attempt: Attempt, message: str) -> None:
-        attempt.status = "failed"
+    def _finish_blocked(self, workspace, package, attempt: Attempt, message: str) -> None:
+        attempt.status = "blocked"
         attempt.error = message
         attempt.finished_at = now_iso()
-        package.status = "failed"
+        package.status = "blocked"
         self.store.save(workspace)
 
     @staticmethod
     def _render_handoff(main_question: str, package, rules_text: str) -> str:
         sections = [
-            "# Approved plan",
+            "# Research test brief",
             f"## Main question\n{main_question}",
             f"## What this work should learn\n{package.goal}",
             f"## Type of work\n{package.work_kind.replace('-', ' ')}",
             f"## Why now\n{package.why_now or 'Not stated.'}",
-            f"## Guidance for this idea\n{package.idea_guidance or 'Follow the approved steps below.'}",
+            f"## Guidance for this idea\n{package.idea_guidance or 'Use the starting approach below and adapt it when needed.'}",
             f"## Stop only if\n{package.ask_before or 'A saved limit or prohibition makes the work impossible. Resolve ordinary implementation and debugging choices within scope.'}",
-            f"## What to do\n{package.instructions}",
+            "## Authority to adapt\nThe method and command below are a starting approach, not a pass/fail contract. Change implementation details, debug, replace a broken technique, or revise the working steps as needed to obtain a valid test. Record meaningful adaptations. Do not call an adaptation a failure. Preserve only the research intent, fair-comparison meaning, measurement, saved resource limits, and explicit prohibitions.",
+            f"## Starting approach\n{package.instructions}",
             f"## Files, data, models, and code\n{package.inputs or 'Use only what the plan requires.'}",
             f"## Fair comparison\n{package.comparison or 'Not stated.'}",
             f"## What to measure\n{package.measure}",
             f"## Expected results\n{package.expected or 'Not stated.'}",
             f"## What this test cannot show\n{package.limits or 'Not stated.'}",
-            f"## Do not change\n{package.do_not_change or 'Do not change the main question or measurement.'}",
+            f"## Scientific and policy boundaries\n{package.do_not_change or 'Keep this work linked to the same idea and preserve the intended comparison and measurement. Other implementation details may change.'}",
             f"## Work limit\n{package.budget}",
         ]
         if rules_text:
             sections.append(f"## Rules for the agent\n{rules_text}")
         sections.append(
-            "## Finish by\nSave useful files under the DELTA_LOOP_OUTPUT_DIR folder and print a short summary."
+            "## Finish by\nSave useful files under the DELTA_LOOP_OUTPUT_DIR folder and print: the final method used, adaptations from the starting approach, whether the execution produced trustworthy evidence, and whether that evidence supports, challenges, or leaves the idea unresolved. A changed method is not a failed experiment."
         )
         return "\n\n".join(sections) + "\n"
 

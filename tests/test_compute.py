@@ -451,7 +451,7 @@ def test_remote_compute_settings_check_and_run_over_ssh(
         for _ in range(80):
             current = client.get(f"/api/workspaces/{workspace_id}").json()
             attempt = next(item for item in current["attempts"] if item["id"] == run_id)
-            if attempt["status"] in {"finished", "failed"}:
+            if attempt["status"] in {"finished", "blocked", "failed"}:
                 break
             time.sleep(0.05)
 

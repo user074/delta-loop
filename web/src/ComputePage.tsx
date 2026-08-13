@@ -56,6 +56,12 @@ function statusLabel(status: ComputeConfig["status"]) {
   return "Not checked";
 }
 
+function runStatusLabel(status: Workspace["attempts"][number]["status"]) {
+  if (status === "blocked" || status === "failed") return "Execution blocked";
+  if (status === "cancelled") return "Stopped";
+  return status;
+}
+
 export default function ComputePage({
   workspace,
   onWorkspace,
@@ -425,8 +431,8 @@ export default function ComputePage({
           <div className="compute-explainer">
             <h2>What happens when work starts</h2>
             <ol>
-              <li><span>1</span><p><strong>Prepare</strong>Delta Loop freezes the approved plan and the current compute settings.</p></li>
-              <li><span>2</span><p><strong>Run</strong>{!compute.configured ? "Work waits until you choose this computer or a remote server." : compute.kind === "ssh" ? "The plan and command are sent through SSH. The job keeps running if this page closes." : "The command runs in the local research folder."}</p></li>
+              <li><span>1</span><p><strong>Prepare</strong>Delta Loop saves the test intent, starting method, boundaries, and current compute settings.</p></li>
+              <li><span>2</span><p><strong>Run</strong>{!compute.configured ? "Work waits until you choose this computer or a remote server." : compute.kind === "ssh" ? "The test brief and starting command are sent through SSH. The job keeps running if this page closes." : "The starting command runs in the local research folder and may be adapted within the saved boundaries."}</p></li>
               <li><span>3</span><p><strong>Watch</strong>Delta Loop reads the job status and recent log. Large result files remain in the run's output folder.</p></li>
             </ol>
           </div>
@@ -533,7 +539,7 @@ export default function ComputePage({
               return (
                 <article key={run.id}>
                   <div className="compute-run-top">
-                    <span className={`compute-run-state ${run.status}`}>{run.status}</span>
+                    <span className={`compute-run-state ${run.status}`}>{runStatusLabel(run.status)}</span>
                     <small>{run.id}</small>
                   </div>
                   <strong>{plan?.title ?? "Research run"}</strong>

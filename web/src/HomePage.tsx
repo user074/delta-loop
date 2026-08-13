@@ -12,6 +12,20 @@ const nextStepLabels: Record<string, string> = {
   park: "Park this idea",
 };
 
+const evidenceOutcomeLabels: Record<Workspace["reviews"][number]["evidence_outcome"], string> = {
+  supports: "Supports the idea",
+  challenges: "Evidence against the idea",
+  inconclusive: "Inconclusive",
+  invalid: "Invalid execution",
+  "not-applicable": "No evidence claim",
+};
+
+function attemptStatusLabel(status: Workspace["attempts"][number]["status"]) {
+  if (status === "blocked" || status === "failed") return "Execution blocked";
+  if (status === "cancelled") return "Stopped";
+  return status;
+}
+
 const workKindLabels: Record<string, string> = {
   "quick-test": "Quick test",
   replicate: "Repeat an earlier result",
@@ -120,7 +134,7 @@ export default function HomePage({
         <article className="latest-review-card">
           <div className="slide-topline">
             <div className="section-kicker"><Sparkles size={14} /> Latest research update</div>
-            <span>{latestAttempt ? latestAttempt.status : latestHistorical ? "Imported result" : "No result yet"}</span>
+            <span>{latestReview ? evidenceOutcomeLabels[latestReview.evidence_outcome] : latestAttempt ? attemptStatusLabel(latestAttempt.status) : latestHistorical ? "Imported result" : "No result yet"}</span>
           </div>
           {latestAttempt && latestPlan ? (
             <>
@@ -130,8 +144,9 @@ export default function HomePage({
               </div>
               <div className="slide-summary-grid">
                 <div><span>What it tested</span><p>{latestPlan.goal || "Not summarized yet."}</p></div>
-                <div><span>Method</span><p>{latestPlan.instructions || latestPlan.comparison || "See the saved run details."}</p></div>
+                <div><span>Starting method</span><p>{latestPlan.instructions || latestPlan.comparison || "See the saved run details."}</p></div>
                 <div><span>Data and inputs</span><p>{latestPlan.inputs || "Not summarized yet."}</p></div>
+                {latestReview?.adaptations && <div><span>How the method changed</span><p>{latestReview.adaptations}</p></div>}
                 <div className="result-cell"><span>Result and review</span><p>{latestReview?.what_it_means || latestAttempt.output.slice(-4).join(" ") || "The result has not been summarized yet."}</p></div>
               </div>
               <div className="slide-decision-row">
@@ -204,8 +219,14 @@ function IdeaOutcome({
   const attempts = workspace.attempts.filter((item) => packageIds.has(item.package_id));
   const claimIds = new Set(approaches.map((item) => item.target_claim_id).filter(Boolean));
   const historical = workspace.runs.filter((run) => run.claim_id && claimIds.has(run.claim_id));
-  const reviewed = attempts.filter((attempt) => workspace.reviews.some((review) => review.attempt_id === attempt.id)).length;
-  const failed = attempts.filter((attempt) => attempt.status === "failed" || attempt.status === "cancelled").length;
+  const reviews = workspace.reviews.filter((review) => attempts.some((attempt) => attempt.id === review.attempt_id));
+  const supports = reviews.filter((review) => review.evidence_outcome === "supports").length;
+  const challenges = reviews.filter((review) => review.evidence_outcome === "challenges").length;
+  const inconclusive = reviews.filter((review) => review.evidence_outcome === "inconclusive").length;
+  const blocked = attempts.filter((attempt) => {
+    const review = reviews.find((item) => item.attempt_id === attempt.id);
+    return ["blocked", "failed", "cancelled"].includes(attempt.status) || review?.execution_validity === "invalid";
+  }).length;
   const running = attempts.filter((attempt) => attempt.status === "running" || attempt.status === "starting").length;
   const primaryApproach = approaches.find((item) => item.status === "primary") ?? approaches[0];
   return (
@@ -213,8 +234,10 @@ function IdeaOutcome({
       <div><strong>{direction.title}</strong><span>{readableStatus(direction.status)} · {approaches.length} ways tried</span></div>
       <div className="outcome-counts">
         {running > 0 && <span className="running">{running} running</span>}
-        {reviewed > 0 && <span className="worked">{reviewed} reviewed</span>}
-        {failed > 0 && <span className="failed">{failed} failed</span>}
+        {supports > 0 && <span className="supports">{supports} supports</span>}
+        {challenges > 0 && <span className="challenges">{challenges} evidence against</span>}
+        {inconclusive > 0 && <span className="inconclusive">{inconclusive} inconclusive</span>}
+        {blocked > 0 && <span className="blocked">{blocked} execution issue{blocked === 1 ? "" : "s"}</span>}
         {historical.length > 0 && <span>{historical.length} imported</span>}
         {!attempts.length && !historical.length && <span>Not run yet</span>}
       </div>

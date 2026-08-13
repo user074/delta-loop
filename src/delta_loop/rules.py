@@ -3,7 +3,7 @@ from __future__ import annotations
 from .models import AgentRule, RulesVersion
 
 
-POLICY_SCHEMA_VERSION = 6
+POLICY_SCHEMA_VERSION = 7
 
 # These were the first POC's simplified loop. Their jobs now live in the complete
 # delta-research cycle below, so keeping them as loop steps would show the work twice.
@@ -15,21 +15,62 @@ LEGACY_LOOP_RULE_IDS = {
 }
 
 LEGACY_RULE_INSTRUCTIONS = {
+    "stage-implementation": (
+        "Turn the selected idea into a precise, bounded, and executable piece of work.",
+    ),
+    "loop-create-plan": (
+        "Write PLAN.md with the question, method, data and resources, commands, success and stop conditions, "
+        "literature status, active policy, and time or compute limits. Preserve the initial plan before handing "
+        "off the work.",
+    ),
+    "stage-experimentation": (
+        "Run the sealed work without silently changing the scientific question or comparison.",
+    ),
     "loop-run-worker": (
-        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, "
-        "debug, plot, and report within that scope, and must stop for blockers or changes that require "
-        "approval."
+        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, debug, "
+        "plot, and report within that scope, and must stop for blockers or changes that require approval.",
+        "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, debug, "
+        "plot, repair scope-preserving failures, and report within that scope. If the worker cannot finish, the "
+        "supervisor should revise the package or choose another useful path without waiting for routine "
+        "researcher approval.",
+    ),
+    "loop-review-result": (
+        "Read the report, check that the intended comparison was followed, decide whether the result is "
+        "trustworthy, separate what happened from its interpretation, and state what it cannot prove.",
+    ),
+    "controlled-plan-amendments": (
+        "Keep the initial plan unchanged. Record scope-preserving execution repairs in the live plan; make a new "
+        "run for a changed hypothesis, main comparison, dataset family, or success condition.",
+    ),
+    "continuous-research": (
+        "Choose, run, review, and record one useful piece of work after another without asking for plan, "
+        "implementation, interpretation, map-update, or promotion approval. Resolve ambiguity with the "
+        "smallest discriminating test. If one path is blocked, record why, park it when appropriate, and "
+        "continue with another eligible path. Stop only for a saved success or stop condition, an exhausted "
+        "resource limit, an action prohibited by policy, or when no safe useful work remains.",
+    ),
+    "plan-exact-inputs": (
+        "Put the exact dataset, checkpoint, prior artifact, output folder, and environment paths in the plan. "
+        "Do not leave the worker to guess or silently substitute a different resource.",
+    ),
+    "plan-hardware-and-execution": (
+        "Use INFRA.md to choose device placement, precision, parallelism, storage, and direct or SLURM execution. "
+        "Request only the hardware needed and put the exact launch command in the plan.",
+    ),
+    "show-work": (
+        "Save commands, measurements, plots, and useful files in the assigned output folder and end "
+        "with a short plain-language summary.",
     ),
     "loop-finish-cycle": (
         "Follow the active Git and publishing rules, then check the recorded stop conditions. If no "
-        "condition applies, continue to the next cycle in the same supervisor session."
+        "condition applies, continue to the next cycle in the same supervisor session.",
     ),
     "ask-before-full-study": (
-        "Stop and ask the researcher before moving from a small or confirming test into a full study."
+        "Stop and ask the researcher before moving from a small or confirming test into a full study.",
     ),
     "git-reviewed-work": (
         "Commit meaningful reviewed work in a focused commit, and ask the researcher before pushing "
-        "or changing shared GitHub state."
+        "or changing shared GitHub state.",
     ),
 }
 
@@ -73,7 +114,7 @@ def _default_rules() -> list[AgentRule]:
         AgentRule(
             id="stage-implementation",
             title="Implementation",
-            instruction="Turn the selected idea into a precise, bounded, and executable piece of work.",
+            instruction="Turn the selected idea into a bounded test brief with clear scientific intent and a practical starting approach.",
             category="loop",
             when="After the next test is chosen",
             loop_level="stage",
@@ -81,11 +122,11 @@ def _default_rules() -> list[AgentRule]:
         ),
         AgentRule(
             id="loop-create-plan",
-            title="Write and seal the run plan",
+            title="Write a flexible test brief",
             instruction=(
-                "Write PLAN.md with the question, method, data and resources, commands, success and stop "
-                "conditions, literature status, active policy, and time or compute limits. Preserve the "
-                "initial plan before handing off the work."
+                "Write PLAN.md with the idea being tested, intended comparison, measurement, scientific and policy "
+                "boundaries, resource limit, and a starting method. Preserve the initial brief for audit, but do not "
+                "treat its implementation steps or command as an immutable contract."
             ),
             category="loop",
             when="After the next work is chosen",
@@ -95,7 +136,7 @@ def _default_rules() -> list[AgentRule]:
         AgentRule(
             id="stage-experimentation",
             title="Experimentation",
-            instruction="Run the sealed work without silently changing the scientific question or comparison.",
+            instruction="Test the idea while adapting implementation details as needed to obtain trustworthy evidence.",
             category="loop",
             when="After the plan is ready",
             loop_level="stage",
@@ -103,15 +144,15 @@ def _default_rules() -> list[AgentRule]:
         ),
         AgentRule(
             id="loop-run-worker",
-            title="Give the work to a bounded worker",
+            title="Let the worker adapt the test",
             instruction=(
-                "Give a worker the sealed plan, exact resources, environment, and policy. The worker may run, "
-                "debug, plot, repair scope-preserving failures, and report within that scope. If the worker cannot "
-                "finish, the supervisor should revise the package or choose another useful path without waiting "
-                "for routine researcher approval."
+                "Give the worker the test intent, starting method, resources, boundaries, environment, and policy. "
+                "The worker may revise code, commands, implementation, and intermediate steps; debug; replace a "
+                "broken technique; and rerun within the saved limits. Record meaningful adaptations, but never count "
+                "a changed plan as a failure. Preserve the intended idea, fair comparison, measurement, and hard boundaries."
             ),
             category="loop",
-            when="After the plan is sealed",
+            when="After the test brief is ready",
             loop_parent_id="stage-experimentation",
             source_label="delta-research · Supervisor Phase 4",
         ),
@@ -126,10 +167,12 @@ def _default_rules() -> list[AgentRule]:
         ),
         AgentRule(
             id="loop-review-result",
-            title="Read and check the result",
+            title="Judge what the test says about the idea",
             instruction=(
-                "Read the report, check that the intended comparison was followed, decide whether the result "
-                "is trustworthy, separate what happened from its interpretation, and state what it cannot prove."
+                "Read the final method and result. First decide whether the execution produced trustworthy evidence; "
+                "then classify that evidence as supporting the idea, challenging the idea, inconclusive, invalid, or "
+                "not applicable. Record implementation adaptations separately. A changed starting plan is not a "
+                "negative result and must not increment any failure or evidence-against count."
             ),
             category="loop",
             when="When the worker finishes",
@@ -250,7 +293,8 @@ def _default_rules() -> list[AgentRule]:
             instruction=(
                 "Choose, run, review, and record one useful piece of work after another without asking for plan, "
                 "implementation, interpretation, map-update, or promotion approval. Resolve ambiguity with the "
-                "smallest discriminating test. If one path is blocked, record why, park it when appropriate, and "
+                "smallest discriminating test. Adapt working plans freely inside scientific and policy boundaries; "
+                "never count a plan revision as a failed experiment. If one path is blocked, record why, park it when appropriate, and "
                 "continue with another eligible path. Stop only for a saved success or stop condition, an exhausted "
                 "resource limit, an action prohibited by policy, or when no safe useful work remains."
             ),
@@ -275,8 +319,9 @@ def _default_rules() -> list[AgentRule]:
             id="plan-exact-inputs",
             title="Name the exact data, model, and prior files",
             instruction=(
-                "Put the exact dataset, checkpoint, prior artifact, output folder, and environment paths in the plan. "
-                "Do not leave the worker to guess or silently substitute a different resource."
+                "Put the starting dataset, checkpoint, prior artifact, output folder, and environment paths in the "
+                "test brief. The worker may substitute a scientifically equivalent resource when needed, but must "
+                "record the substitution and preserve the intended comparison."
             ),
             category="data",
             when="While writing the run plan",
@@ -288,7 +333,8 @@ def _default_rules() -> list[AgentRule]:
             title="Specify how the work will run",
             instruction=(
                 "Use INFRA.md to choose device placement, precision, parallelism, storage, and direct or SLURM execution. "
-                "Request only the hardware needed and put the exact launch command in the plan."
+                "Request only the hardware needed and put a starting launch command in the test brief; the worker may "
+                "repair or replace that command within the saved resource limits."
             ),
             category="hardware",
             when="While writing the run plan",
@@ -309,10 +355,12 @@ def _default_rules() -> list[AgentRule]:
         ),
         AgentRule(
             id="controlled-plan-amendments",
-            title="Keep the initial plan and record repairs",
+            title="Adapt implementation without calling it failure",
             instruction=(
-                "Keep the initial plan unchanged. Record scope-preserving execution repairs in the live plan; "
-                "make a new run for a changed hypothesis, main comparison, dataset family, or success condition."
+                "Keep the initial test brief as provenance and record the final method plus meaningful adaptations. "
+                "Implementation changes, repaired commands, and revised intermediate steps are normal and do not make "
+                "the run fail. If the idea, comparison meaning, or measurement changes, link the result to a revised "
+                "test instead of labeling the original idea as failed."
             ),
             category="project",
             when="A running plan needs to change",
@@ -337,7 +385,8 @@ def _default_rules() -> list[AgentRule]:
             title="Leave useful files and a clear summary",
             instruction=(
                 "Save commands, measurements, plots, and useful files in the assigned output folder and end "
-                "with a short plain-language summary."
+                "with a short plain-language summary of the final method, adaptations, execution validity, observed "
+                "result, and whether the evidence supports, challenges, or leaves the idea unresolved."
             ),
             category="project",
             when="A piece of work ends",
@@ -388,7 +437,7 @@ def upgrade_policy_rules(version: RulesVersion) -> tuple[list[AgentRule], bool]:
                 changed = True
             current = template.model_copy(deep=True)
         elif template:
-            migrate_from_legacy = current.instruction == LEGACY_RULE_INSTRUCTIONS.get(current.id)
+            migrate_from_legacy = current.instruction in LEGACY_RULE_INSTRUCTIONS.get(current.id, ())
             if migrate_from_legacy and current.instruction != template.instruction:
                 current.title = template.title
                 current.instruction = template.instruction
